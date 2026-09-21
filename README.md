@@ -291,6 +291,22 @@ npm run brain          # neural dynamics diagnostic
 
 ---
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Genesis](docs/screenshots/01-genesis.png) | ![World](docs/screenshots/02-world.png) |
+| **Genesis** — a seed, a population, and nothing else. | **World** — water, shoreline, vegetation, and the inhabitants. |
+| ![Inspector](docs/screenshots/03-inspector.png) | ![Brain](docs/screenshots/04-brain-and-trace.png) |
+| **Inspector** — physiology, genealogy, social memory, genome. | **Live brain and contribution trace.** |
+| ![Family tree](docs/screenshots/05-family-tree.png) | |
+| **Family tree** — founders and their descendants. | |
+
+These are captures of the running application, produced by
+`scripts/verify-ui.mjs`.
+
+---
+
 ## Architecture
 
 ```
