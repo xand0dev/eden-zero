@@ -44,28 +44,32 @@ export function WorldScreen({
   useEffect(() => {
     const container = viewportRef.current;
     if (!container) return undefined;
+    let disposed = false;
     const renderer = new WorldRenderer({
       onSelect: (id) => sim.select(id),
       onWorldClick: (x, y, id) => handleWorldClickRef.current(x, y, id),
       onFps: (fps) => sim.reportFps(fps),
     });
     rendererRef.current = renderer;
-    void renderer.init(container);
+
+    void renderer.init(container).then(() => {
+      // React StrictMode mounts, unmounts and remounts effects in development.
+      // If this instance was torn down while `app.init` was still awaiting, its
+      // canvas must not be attached a second time.
+      if (disposed) {
+        renderer.app.destroy(true, { children: true });
+        return;
+      }
+      const terrain = generateTerrain(sim.getSnapshot().config.seed);
+      renderer.setTerrain(terrain);
+    });
+
     return () => {
-      rendererRef.current = null;
+      disposed = true;
+      if (rendererRef.current === renderer) rendererRef.current = null;
       renderer.app.destroy(true, { children: true });
     };
   }, []);
-
-  // Terrain is regenerated on the main thread from the same seed — it is
-  // deterministic, so it is byte-identical to the worker's copy and there is no
-  // reason to ship a megabyte of tiles across the worker boundary.
-  useEffect(() => {
-    const renderer = rendererRef.current;
-    if (!renderer) return;
-    const terrain = generateTerrain(state.config.seed);
-    renderer.setTerrain(terrain);
-  }, [state.config.seed, state.ready]);
 
   useEffect(() => {
     const renderer = rendererRef.current;
