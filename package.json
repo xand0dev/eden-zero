@@ -1,0 +1,40 @@
+{
+  "name": "eden-zero",
+  "private": true,
+  "version": "0.1.0-alpha.0",
+  "description": "EDEN//0 - Artificial Life Observatory. You don't control life. You define its laws.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "./node_modules/.bin/vite",
+    "build": "./node_modules/.bin/tsc --noEmit && ./node_modules/.bin/vite build",
+    "preview": "./node_modules/.bin/vite preview",
+    "test": "./node_modules/.bin/vitest run",
+    "test:watch": "./node_modules/.bin/vitest",
+    "sim": "./node_modules/.bin/tsx scripts/simulate.ts",
+    "brain": "./node_modules/.bin/tsx scripts/brain-probe.ts",
+    "format": "./node_modules/.bin/prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.ts\"",
+    "typecheck": "./node_modules/.bin/tsc --noEmit",
+    "tauri": "./node_modules/.bin/tauri",
+    "desktop": "./node_modules/.bin/tauri dev",
+    "desktop:build": "./node_modules/.bin/tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.1.1",
+    "pixi.js": "^8.6.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}

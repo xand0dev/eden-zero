@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vite
+coverage
+src-tauri/target
+src-tauri/gen
+*.log
+
+# Vite writes timestamped config snapshots next to the config file while the
+# dev server is running; they must never be committed.
+vite.config.ts.timestamp-*

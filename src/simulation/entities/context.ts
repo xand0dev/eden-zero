@@ -1,0 +1,55 @@
+import type { Climate } from '../environment/climate';
+import type { TerrainData } from '../environment/terrain';
+import type { Human } from './human';
+import type { Predator } from './predator';
+import type { Plant } from './plant';
+import type { EventKind } from '../../shared/types';
+
+/**
+ * The slice of the world that entities are allowed to see.
+ *
+ * Declaring it as an interface (rather than importing the concrete `World`
+ * class) keeps the dependency graph acyclic and, more importantly, keeps the
+ * door open for the future Rust migration: a Rust-backed world only has to
+ * satisfy this contract.
+ */
+export interface SimWorld {
+  tick: number;
+  simTime: number;
+  dt: number;
+  terrain: TerrainData;
+  climate: Climate;
+
+  /**
+   * Entity tables. Indices returned by the `query*` methods index directly into
+   * these arrays; the tables are only compacted at the end of a tick, so
+   * indices stay valid for the whole duration of one tick.
+   */
+  humans: Human[];
+  predators: Predator[];
+  plants: Plant[];
+
+  /** World-level deterministic PRNG. */
+  random(): number;
+
+  getHuman(id: number): Human | undefined;
+  getPredator(id: number): Predator | undefined;
+
+  /** Fill `out` with indices of nearby entities. Returns the count. */
+  queryHumans(x: number, y: number, radius: number, out: number[]): number;
+  queryPredators(x: number, y: number, radius: number, out: number[]): number;
+  queryPlants(x: number, y: number, radius: number, out: number[]): number;
+
+  ambientTemperatureAt(x: number, y: number): number;
+
+  /** Consume plant biomass; returns the amount actually taken. */
+  consumePlant(plantIndex: number, amount: number): number;
+
+  /** Apply damage to a human, attributing a death reason. */
+  damageHuman(target: Human, amount: number, reason: string, attackerId: number | null): void;
+
+  /** Genetic relatedness in 0..1 between two individuals. */
+  relatedness(a: number, b: number): number;
+
+  emitEvent(kind: EventKind, text: string, entityIds: number[]): void;
+}
