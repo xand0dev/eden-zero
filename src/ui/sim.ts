@@ -4,6 +4,12 @@ import { SimClient, type SimState } from '../worker/client';
 /** Single simulation client for the whole app. */
 export const sim = new SimClient();
 
+// Expose the client in development builds so the UI can be driven from a script
+// (see scripts/verify-ui.mjs) without adding a production back door.
+if (import.meta.env.DEV) {
+  (window as unknown as Record<string, unknown>).__eden = sim;
+}
+
 export function useSim(): SimState {
   return useSyncExternalStore(sim.subscribe, sim.getSnapshot, sim.getSnapshot);
 }

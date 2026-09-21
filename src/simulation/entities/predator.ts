@@ -23,7 +23,7 @@ import { normalizeAngle } from './human';
  * docs/SIMULATION.md and does not change the neural architecture.
  */
 
-const HUNGER_RATE = 1.05;
+const HUNGER_RATE = 0.55;
 const FATIGUE_RATE = 0.9;
 const FATIGUE_REST_RATE = 4.4;
 const ENERGY_DRAIN_BASE = 0.44;
@@ -327,7 +327,7 @@ export class Predator {
     this.attacking = false;
     this.feeding = false;
 
-    if (m[M.attack] * this.genome.aggressionGain > 0.4) this.tryAttack(world);
+    if (m[M.attack] * this.genome.aggressionGain > 0.35) this.tryAttack(world);
     if (m[M.eat] > 0.3) this.tryEat(world);
 
     this.currentAction = this.attacking

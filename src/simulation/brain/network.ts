@@ -141,22 +141,25 @@ const INNATE_PRIORS: ReadonlyArray<readonly [number, number, number]> = [
   [S.hunger, MOTOR(M.eat), 2.2],
   [S.hunger, MOTOR(M.rest), -0.15],
   [S.thirst, MOTOR(M.drink), 2.4],
-  [S.fatigue, MOTOR(M.rest), 0.75],
+  [S.fatigue, MOTOR(M.rest), 1.4],
   [S.fatigue, MOTOR(M.moveFwd), -0.38],
   [S.fatigue, MOTOR(M.sprint), -0.4],
-  [S.energy, MOTOR(M.rest), -0.32],
+  [S.energy, MOTOR(M.rest), -0.45],
   // Thermoregulation-ish bias.
   [S.cold, MOTOR(M.moveFwd), 0.1],
   [S.cold, MOTOR(M.rest), -0.2],
-  [S.heat, MOTOR(M.rest), 0.26],
+  [S.heat, MOTOR(M.rest), 0.4],
   [S.heat, MOTOR(M.sprint), -0.3],
   // Diurnal bias: darkness favours rest, light favours activity.
   [S.light, MOTOR(M.rest), -0.28],
   [S.light, MOTOR(M.moveFwd), 0.25],
-  // Reproductive readiness.
-  [S.libido, MOTOR(M.mate), 0.5],
+  // Reproductive readiness. The mate drive has to be able to clear its action
+  // gate on its own: the read-out measures drive against an adapting baseline, so
+  // a prior of 0.5 against a baseline set by locomotion produces a command of
+  // ~0.2 and no adult ever initiates anything.
+  [S.libido, MOTOR(M.mate), 1.1],
   [S.libido, MOTOR(M.moveFwd), 0.06],
-  [S.fertility, MOTOR(M.mate), 0.14],
+  [S.fertility, MOTOR(M.mate), 0.25],
   // Social affiliation.
   [S.attachment, MOTOR(M.interact), 0.32],
   [S.attachment, MOTOR(M.moveFwd), 0.1],
@@ -203,6 +206,28 @@ const INNATE_PRIORS: ReadonlyArray<readonly [number, number, number]> = [
   [MOTOR(M.moveBack), MOTOR(M.moveFwd), -0.55],
   [MOTOR(M.turnLeft), MOTOR(M.turnRight), -0.5],
   [MOTOR(M.turnRight), MOTOR(M.turnLeft), -0.5],
+];
+
+/**
+ * Additional innate priors for predators.
+ *
+ * Predators run the *same* network as humans — there is no separate controller.
+ * What differs is which modality is wired to which motor. For a predator the
+ * `food.*` channels carry meat rather than plant matter, so `food -> attack` is
+ * literally the predatory reflex arc expressed in the same generic architecture.
+ * Without it, a predator has no innate drive strong enough to clear its attack
+ * gate and starves standing next to its prey.
+ *
+ * Note the asymmetry with humans, who get no `food -> attack` prior: for them
+ * `food.*` points at plants, and wiring plants to attack would have them
+ * assaulting each other over a bush.
+ */
+const PREDATOR_PRIORS: ReadonlyArray<readonly [number, number, number]> = [
+  [S.foodFront, MOTOR(M.attack), 2.2],
+  [S.foodFront, MOTOR(M.sprint), 0.6],
+  [S.foodRight, MOTOR(M.turnRight), 0.7],
+  [S.foodLeft, MOTOR(M.turnLeft), 0.7],
+  [S.foodBack, MOTOR(M.turnRight), 0.3],
 ];
 
 export interface BrainTopologyStats {
@@ -472,6 +497,12 @@ export class Brain {
     for (let p = 0; p < INNATE_PRIORS.length; p++) {
       const [from, to, weight] = INNATE_PRIORS[p];
       pushEdge(from, to, weight);
+    }
+    if (genome.species === 1) {
+      for (let p = 0; p < PREDATOR_PRIORS.length; p++) {
+        const [from, to, weight] = PREDATOR_PRIORS[p];
+        pushEdge(from, to, weight);
+      }
     }
 
     this.synCount = preList.length;

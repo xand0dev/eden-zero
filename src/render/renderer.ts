@@ -41,6 +41,16 @@ export interface RendererCallbacks {
   onFps(fps: number): void;
 }
 
+/**
+ * Visual size multiplier applied to humanoid sprites.
+ *
+ * A human occupies well under one tile of world space. Drawn at true scale the
+ * inhabitants are barely a dozen pixels tall and the observer cannot tell who is
+ * doing what. This is a readability decision, not a simulation one — the
+ * simulation never sees it.
+ */
+const SPRITE_SCALE = 1.45;
+
 export class WorldRenderer {
   readonly app = new Application();
   private readonly root = new Container();
@@ -71,12 +81,17 @@ export class WorldRenderer {
   camera: Camera = { x: 90, y: 64, zoom: 1 };
   followId: number | null = null;
 
+  get isDestroyed(): boolean {
+    return this.destroyed;
+  }
+
   private dragging = false;
   private dragMoved = false;
   private lastPointer = { x: 0, y: 0 };
   private pointerDownAt = { x: 0, y: 0 };
 
   private lastPlantRedraw = 0;
+  private cameraFramed = false;
   private frameCount = 0;
   private fpsAccumulator = 0;
   private lastFpsTime = 0;
@@ -84,18 +99,42 @@ export class WorldRenderer {
   private selectedId: number | null = null;
   private lastEntities: EntityView[] = [];
 
+  private resizeObserver: ResizeObserver | null = null;
+  private destroyed = false;
+
   constructor(private readonly callbacks: RendererCallbacks) {}
 
   async init(container: HTMLElement): Promise<void> {
     await this.app.init({
       background: 0x04060a,
       antialias: true,
-      resizeTo: container,
+      // Deliberately NOT using Pixi's `resizeTo` option. Its ResizePlugin holds
+      // an internal cancel callback that is torn down by `app.destroy()`, and
+      // React StrictMode mounts, unmounts and remounts effects in development —
+      // so the plugin's observer can fire against an already-destroyed
+      // application and throw "this._cancelResize is not a function", blanking
+      // the entire UI. Managing the resize ourselves is both simpler and safe.
+      width: Math.max(320, container.clientWidth || 960),
+      height: Math.max(240, container.clientHeight || 640),
       resolution: Math.min(2, window.devicePixelRatio || 1),
       autoDensity: true,
       powerPreference: 'high-performance',
     });
+
+    if (this.destroyed) {
+      this.app.destroy(true, { children: true });
+      return;
+    }
+
     container.appendChild(this.app.canvas);
+
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.destroyed) return;
+      const width = Math.max(320, container.clientWidth);
+      const height = Math.max(240, container.clientHeight);
+      this.app.renderer.resize(width, height);
+    });
+    this.resizeObserver.observe(container);
 
     this.root.addChild(this.terrainLayer, this.plantLayer, this.entityLayer, this.effectLayer);
     // The selection ring lives in world space (inside `root`); the day/night
@@ -115,19 +154,29 @@ export class WorldRenderer {
     this.terrain = terrain;
     this.terrainTexture?.destroy(true);
     this.terrainTexture = buildTerrainTexture(terrain);
+    // ---------------------------------------------------------------------
+    // Coordinate convention
+    //
+    // World space is measured in TILES, not pixels, and `root.scale` applies
+    // `TILE * zoom`. Every position and size below is therefore in tile units.
+    // Mixing the two (placing a sprite at `x * TILE` while the root transform
+    // also multiplies by TILE) renders the world 14x too large, which is exactly
+    // how the first build managed to show nothing but a field of blue rectangles.
+    // ---------------------------------------------------------------------
+
     if (this.terrainSprite) {
       this.terrainSprite.texture = this.terrainTexture;
     } else {
       this.terrainSprite = new Sprite(this.terrainTexture);
       this.terrainLayer.addChild(this.terrainSprite);
     }
-    this.terrainSprite.width = terrain.width * TILE;
-    this.terrainSprite.height = terrain.height * TILE;
+    this.terrainSprite.width = terrain.width;
+    this.terrainSprite.height = terrain.height;
 
     // Plant layer shares the terrain's resolution.
     this.plantCanvas = document.createElement('canvas');
-    this.plantCanvas.width = terrain.width;
-    this.plantCanvas.height = terrain.height;
+    this.plantCanvas.width = terrain.width * GROUND_SCALE;
+    this.plantCanvas.height = terrain.height * GROUND_SCALE;
     this.plantContext = this.plantCanvas.getContext('2d');
     this.plantTexture?.destroy(true);
     this.plantTexture = Texture.from(this.plantCanvas);
@@ -138,11 +187,18 @@ export class WorldRenderer {
       this.plantSprite = new Sprite(this.plantTexture);
       this.plantLayer.addChild(this.plantSprite);
     }
-    this.plantSprite.width = terrain.width * TILE;
-    this.plantSprite.height = terrain.height * TILE;
+    this.plantSprite.width = terrain.width;
+    this.plantSprite.height = terrain.height;
 
-    this.camera.x = terrain.width / 2;
-    this.camera.y = terrain.height / 2;
+    // Only fall back to the map centre if the inhabitants have not already been
+    // framed. `setTerrain` runs asynchronously after `init`, so it can land after
+    // the first entity snapshot has already positioned the camera — resetting
+    // here would drop the observer into the middle of the ocean.
+    if (!this.cameraFramed) {
+      this.camera.x = terrain.width / 2;
+      this.camera.y = terrain.height / 2;
+    }
+    this.clampCamera();
   }
 
   // ---------------------------------------------------------------------
@@ -321,7 +377,7 @@ export class WorldRenderer {
       const entity = this.lastEntities.find((item) => item.id === this.selectedId);
       if (entity) {
         this.selectionRing.visible = true;
-        this.selectionRing.position.set(entity.x * TILE, entity.y * TILE);
+        this.selectionRing.position.set(entity.x, entity.y);
         this.selectionRing.scale.set(
           Math.max(0.6, entity.size * (entity.kind === EntityKind.Plant ? 1.2 : 1)),
         );
@@ -343,6 +399,31 @@ export class WorldRenderer {
 
   onEntities(entities: EntityView[]): void {
     this.lastEntities = entities;
+
+    // Frame the inhabitants the first time we see them.
+    //
+    // The camera otherwise starts at the geometric centre of the map, which is
+    // very often open water — the observer opens a new world and sees nothing.
+    if (!this.cameraFramed && entities.length > 0) {
+      let sumX = 0;
+      let sumY = 0;
+      let count = 0;
+      for (const entity of entities) {
+        if (entity.kind !== EntityKind.Human) continue;
+        sumX += entity.x;
+        sumY += entity.y;
+        count++;
+      }
+      if (count > 0) {
+        this.cameraFramed = true;
+        this.camera.x = sumX / count;
+        this.camera.y = sumY / count;
+        // Frame the settlement rather than the whole map: at zoom 1 the world is
+        // ~50 tiles wide and the inhabitants are a dozen pixels tall.
+        this.camera.zoom = 1.9;
+        this.clampCamera();
+      }
+    }
   }
 
   private updateEntities(dt: number): void {
@@ -365,7 +446,7 @@ export class WorldRenderer {
       if (entity.kind === EntityKind.Human) {
         seenHumans.add(entity.id);
         const sprite = this.obtainSprite(false, entity.id);
-        sprite.position.set(entity.x * TILE, entity.y * TILE);
+        sprite.position.set(entity.x, entity.y);
         // Sprites are authored facing "up"; the world's heading 0 points along +x.
         sprite.rotation = entity.heading + Math.PI / 2;
         sprite.update(
@@ -375,7 +456,7 @@ export class WorldRenderer {
           entity.flags,
           entity.pregnancy,
           entity.mating,
-          entity.size,
+          entity.size * SPRITE_SCALE,
           entity.hue,
           entity.saturation,
           entity.lightness,
@@ -383,7 +464,7 @@ export class WorldRenderer {
       } else {
         seenPredators.add(entity.id);
         const sprite = this.obtainSprite(true, entity.id);
-        sprite.position.set(entity.x * TILE, entity.y * TILE);
+        sprite.position.set(entity.x, entity.y);
         sprite.rotation = entity.heading + Math.PI / 2;
         sprite.update(
           dt,
@@ -392,7 +473,7 @@ export class WorldRenderer {
           entity.flags,
           0,
           0,
-          entity.size * 0.62,
+          entity.size * 0.62 * SPRITE_SCALE,
           entity.hue,
           entity.saturation,
           entity.lightness,
@@ -435,6 +516,7 @@ export class WorldRenderer {
   private redrawPlants(): void {
     const context = this.plantContext;
     if (!context || !this.plantCanvas || !this.plantTexture) return;
+    const scale = GROUND_SCALE;
     const width = this.plantCanvas.width;
     const height = this.plantCanvas.height;
     context.clearRect(0, 0, width, height);
@@ -444,19 +526,25 @@ export class WorldRenderer {
       const species = entity.sex; // plant species is packed into the sex byte
       const profile = SPECIES_PROFILES[species] ?? SPECIES_PROFILES[PlantSpecies.Grass];
       const food = entity.health;
-      const size = species === PlantSpecies.Tree ? 3 : species === PlantSpecies.Bush ? 2 : 1;
+      // Grass, bush and tree are drawn at increasing footprint so a forest reads
+      // as a forest at a glance.
+      const size = (species === PlantSpecies.Tree ? 3 : species === PlantSpecies.Bush ? 2 : 1) * scale;
       const lightness = profile.lightness + food * 0.16;
       const color = hslToHex(profile.hue, profile.saturation, lightness);
       context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-      context.fillRect(
-        Math.round(entity.x - size / 2),
-        Math.round(entity.y - size / 2),
-        size,
-        size,
-      );
+      const cx = entity.x * scale;
+      const cy = entity.y * scale;
+      if (species === PlantSpecies.Tree) {
+        // A small canopy rather than a square.
+        context.beginPath();
+        context.arc(cx, cy, size * 0.5, 0, Math.PI * 2);
+        context.fill();
+      } else {
+        context.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      }
       if (species === PlantSpecies.FoodPile) {
-        context.fillStyle = 'rgba(255, 140, 90, 0.85)';
-        context.fillRect(Math.round(entity.x - 1), Math.round(entity.y - 1), 2, 2);
+        context.fillStyle = 'rgba(255, 150, 90, 0.9)';
+        context.fillRect(Math.round(cx - scale), Math.round(cy - scale), scale * 2, scale * 2);
       }
     }
     this.plantTexture.source.update();
@@ -493,28 +581,41 @@ export class WorldRenderer {
     this.pendingEffects = effects;
   }
 
+  /** Tear down cleanly. Safe to call before or after `init` resolves. */
+  destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    try {
+      this.app.destroy(true, { children: true });
+    } catch {
+      // The application may already be partially torn down; nothing to do.
+    }
+  }
+
   private pendingEffects: WorldEffect[] = [];
 }
 
 // ---------------------------------------------------------------------------
 
 function drawEffect(graphic: Graphics, effect: WorldEffect, progress: number): void {
-  const x = effect.x * TILE;
-  const y = effect.y * TILE;
-  const radius = effect.radius * TILE;
+  const x = effect.x;
+  const y = effect.y;
+  const radius = effect.radius;
 
   switch (effect.kind) {
     case 'lightning': {
       const alpha = 1 - progress;
       graphic
-        .moveTo(x, y - 260)
-        .lineTo(x - 10, y - 120)
-        .lineTo(x + 8, y - 90)
+        .moveTo(x, y - 18)
+        .lineTo(x - 0.8, y - 8)
+        .lineTo(x + 0.6, y - 6)
         .lineTo(x, y)
-        .stroke({ color: 0xdff3ff, width: 5, alpha });
+        .stroke({ color: 0xdff3ff, width: 0.35, alpha });
       graphic.circle(x, y, radius * (0.35 + progress * 0.65)).stroke({
         color: 0x9fd8ff,
-        width: 4,
+        width: 0.28,
         alpha: alpha * 0.8,
       });
       graphic.circle(x, y, radius * 0.28).fill({ color: 0xffffff, alpha: alpha * 0.55 });
@@ -524,14 +625,14 @@ function drawEffect(graphic: Graphics, effect: WorldEffect, progress: number): v
       const alpha = 1 - progress;
       graphic.circle(x, y, radius * (0.2 + progress * 1.5)).stroke({
         color: 0xffd9a0,
-        width: 3,
+        width: 0.22,
         alpha,
       });
       break;
     }
     case 'death': {
       const alpha = 1 - progress;
-      graphic.circle(x, y, radius * (0.3 + progress)).stroke({ color: 0x8a2b2b, width: 3, alpha });
+      graphic.circle(x, y, radius * (0.3 + progress)).stroke({ color: 0x8a2b2b, width: 0.22, alpha });
       graphic.circle(x, y, radius * 0.2).fill({ color: 0x551818, alpha: alpha * 0.5 });
       break;
     }
@@ -539,7 +640,7 @@ function drawEffect(graphic: Graphics, effect: WorldEffect, progress: number): v
       const alpha = (1 - progress) * 0.9;
       graphic.circle(x, y, radius * (0.4 + progress * 0.5)).stroke({
         color: 0xff9fb5,
-        width: 2,
+        width: 0.16,
         alpha,
       });
       break;
@@ -550,35 +651,53 @@ function drawEffect(graphic: Graphics, effect: WorldEffect, progress: number): v
     }
     default: {
       const alpha = (1 - progress) * 0.8;
-      graphic.circle(x, y, radius * (0.3 + progress)).stroke({ color: 0xa8e6ff, width: 2, alpha });
+      graphic.circle(x, y, radius * (0.3 + progress)).stroke({ color: 0xa8e6ff, width: 0.16, alpha });
       break;
     }
   }
 }
 
-/** Paint the terrain into a 1-pixel-per-tile canvas and upload it as a texture. */
+/**
+ * Pixels per tile in the offscreen terrain and vegetation canvases.
+ *
+ * One pixel per tile is cheap but reads as a grid of flat coloured squares. Four
+ * gives enough resolution for per-pixel grain, which is what makes the ground
+ * look like ground rather than like a spreadsheet.
+ */
+const GROUND_SCALE = 4;
+
+/** Paint the terrain into an offscreen canvas and upload it as a texture. */
 function buildTerrainTexture(terrain: TerrainData): Texture {
+  const scale = GROUND_SCALE;
   const canvas = document.createElement('canvas');
-  canvas.width = terrain.width;
-  canvas.height = terrain.height;
+  canvas.width = terrain.width * scale;
+  canvas.height = terrain.height * scale;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('2D canvas context unavailable');
-  const image = context.createImageData(terrain.width, terrain.height);
+  const image = context.createImageData(canvas.width, canvas.height);
 
-  for (let y = 0; y < terrain.height; y++) {
-    for (let x = 0; x < terrain.width; x++) {
-      const index = y * terrain.width + x;
+  for (let ty = 0; ty < terrain.height; ty++) {
+    for (let tx = 0; tx < terrain.width; tx++) {
+      const index = ty * terrain.width + tx;
       const tile = terrain.tiles[index];
       const base = TERRAIN_COLORS[tile] ?? [40, 40, 40];
-      // Cheap deterministic texture so the ground is not a flat block of colour.
-      const noise = ((x * 73856093) ^ (y * 19349663)) % 17;
-      const jitter = (noise / 17 - 0.5) * 14;
       const shade = tile === 0 ? 1 : 1 + (terrain.elevation[index] - 0.5) * 0.28;
-      const pixel = (y * terrain.width + x) * 4;
-      image.data[pixel] = clampByte(base[0] * shade + jitter);
-      image.data[pixel + 1] = clampByte(base[1] * shade + jitter);
-      image.data[pixel + 2] = clampByte(base[2] * shade + jitter);
-      image.data[pixel + 3] = 255;
+      const lit = [base[0] * shade, base[1] * shade, base[2] * shade];
+
+      for (let sy = 0; sy < scale; sy++) {
+        for (let sx = 0; sx < scale; sx++) {
+          // Deterministic per-pixel grain, stable across reloads.
+          const gx = tx * scale + sx;
+          const gy = ty * scale + sy;
+          const noise = ((gx * 73856093) ^ (gy * 19349663)) % 19;
+          const jitter = (noise / 19 - 0.5) * (tile === 0 ? 6 : 16);
+          const pixel = ((gy * canvas.width) + gx) * 4;
+          image.data[pixel] = clampByte(lit[0] + jitter);
+          image.data[pixel + 1] = clampByte(lit[1] + jitter);
+          image.data[pixel + 2] = clampByte(lit[2] + jitter);
+          image.data[pixel + 3] = 255;
+        }
+      }
     }
   }
   context.putImageData(image, 0, 0);
@@ -586,19 +705,15 @@ function buildTerrainTexture(terrain: TerrainData): Texture {
   // Shelter zones read as warm clearings.
   context.globalCompositeOperation = 'lighter';
   for (const shelter of terrain.shelters) {
-    const gradient = context.createRadialGradient(
-      shelter.x,
-      shelter.y,
-      0,
-      shelter.x,
-      shelter.y,
-      shelter.radius,
-    );
-    gradient.addColorStop(0, 'rgba(120, 90, 50, 0.55)');
+    const cx = shelter.x * scale;
+    const cy = shelter.y * scale;
+    const radius = shelter.radius * scale;
+    const gradient = context.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    gradient.addColorStop(0, 'rgba(120, 90, 50, 0.5)');
     gradient.addColorStop(1, 'rgba(120, 90, 50, 0)');
     context.fillStyle = gradient;
     context.beginPath();
-    context.arc(shelter.x, shelter.y, shelter.radius, 0, Math.PI * 2);
+    context.arc(cx, cy, radius, 0, Math.PI * 2);
     context.fill();
   }
   context.globalCompositeOperation = 'source-over';

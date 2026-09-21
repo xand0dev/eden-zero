@@ -58,7 +58,7 @@ const TOUCH_RANGE = 0.95;
 
 /** Duration of a mating event, in simulated seconds. */
 export const MATING_DURATION = 7;
-const MATING_REFRACTORY = 55;
+const MATING_REFRACTORY = 38;
 
 const ATTACK_REACH = 1.5;
 const ATTACK_INTERVAL_TICKS = 4;
@@ -288,12 +288,16 @@ export class Human {
     const thirst01 = this.thirst / 100;
     const fatigue01 = this.fatigue / 100;
     const stress01 = this.stress / 100;
+    // The suppressions are multiplicative, so they compound: with the original
+    // coefficients a merely peckish, slightly tired adult ended up with a libido
+    // around 0.5, a mate command below its action gate, and a world that reached
+    // only nine matings in eighty simulated years.
     this.libido = clamp01(
       this.fertility01 *
-        (0.4 + 0.6 * (1 - stress01 * 0.7)) *
-        (1 - hunger01 * 0.55) *
-        (1 - thirst01 * 0.6) *
-        (1 - fatigue01 * 0.55) *
+        (0.4 + 0.6 * (1 - stress01 * 0.4)) *
+        (1 - hunger01 * 0.35) *
+        (1 - thirst01 * 0.35) *
+        (1 - fatigue01 * 0.35) *
         (this.pregnancy ? 0 : 1),
     );
 
@@ -703,7 +707,11 @@ export class Human {
 
     if (m[M.eat] > 0.25) this.tryEat(world);
     if (m[M.drink] > 0.25) this.tryDrink(world, dt);
-    if (m[M.attack] * this.genome.aggressionGain > 0.9) this.tryAttack(world);
+    // Violence is possible but rare: only an individual whose aggression gene is
+    // high *and* whose network is driving the attack output hard can actually
+    // strike. Emergent violence between humans is a legitimate outcome of a
+    // heritable trait, but it should not be the leading cause of death.
+    if (m[M.attack] * this.genome.aggressionGain > 1.0) this.tryAttack(world);
 
     // Survival-critical homeostatic override.
     //

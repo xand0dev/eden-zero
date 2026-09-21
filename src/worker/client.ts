@@ -178,7 +178,7 @@ export class SimClient {
   // --- commands -------------------------------------------------------------
 
   start(config: WorldConfig): void {
-    this.set({ config, phase: 'world', error: null }, true);
+    this.set({ config, phase: 'world', error: null, paused: false, speed: 1 }, true);
     this.send({ type: 'genesis', config });
   }
 

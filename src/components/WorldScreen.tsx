@@ -44,7 +44,6 @@ export function WorldScreen({
   useEffect(() => {
     const container = viewportRef.current;
     if (!container) return undefined;
-    let disposed = false;
     const renderer = new WorldRenderer({
       onSelect: (id) => sim.select(id),
       onWorldClick: (x, y, id) => handleWorldClickRef.current(x, y, id),
@@ -56,18 +55,14 @@ export function WorldScreen({
       // React StrictMode mounts, unmounts and remounts effects in development.
       // If this instance was torn down while `app.init` was still awaiting, its
       // canvas must not be attached a second time.
-      if (disposed) {
-        renderer.app.destroy(true, { children: true });
-        return;
-      }
+      if (renderer.isDestroyed) return;
       const terrain = generateTerrain(sim.getSnapshot().config.seed);
       renderer.setTerrain(terrain);
     });
 
     return () => {
-      disposed = true;
       if (rendererRef.current === renderer) rendererRef.current = null;
-      renderer.app.destroy(true, { children: true });
+      renderer.destroy();
     };
   }, []);
 

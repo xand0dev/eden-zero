@@ -31,7 +31,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": ["app"],
     "category": "Game",
     "shortDescription": "Artificial life observatory",
     "longDescription": "EDEN//0 is an artificial-life god simulator. You don't control life — you define its laws.",

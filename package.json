@@ -13,11 +13,13 @@
     "test:watch": "./node_modules/.bin/vitest",
     "sim": "./node_modules/.bin/tsx scripts/simulate.ts",
     "brain": "./node_modules/.bin/tsx scripts/brain-probe.ts",
+    "accept": "./node_modules/.bin/tsx scripts/acceptance.ts",
     "format": "./node_modules/.bin/prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.ts\"",
     "typecheck": "./node_modules/.bin/tsc --noEmit",
     "tauri": "./node_modules/.bin/tauri",
     "desktop": "./node_modules/.bin/tauri dev",
-    "desktop:build": "./node_modules/.bin/tauri build"
+    "desktop:build": "./node_modules/.bin/tauri build",
+    "app": "bash scripts/build-app.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

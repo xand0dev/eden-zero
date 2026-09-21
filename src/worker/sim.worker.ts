@@ -61,7 +61,9 @@ function genesis(config: WorldConfig): void {
   ticksSinceSample = 0;
   measuredTps = 0;
   selectedId = null;
-  paused = true;
+  // A freshly created world starts running at x1 — the observer should see life
+  // immediately rather than an apparently frozen world.
+  paused = false;
   speed = 1;
   post({ type: 'ready' });
   sendSnapshot(true);

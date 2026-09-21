@@ -252,16 +252,35 @@ npm run desktop        # Tauri desktop app in development
 ### Test
 
 ```bash
-npm test
+npm test        # 83 unit + integration tests
+npm run accept  # the 50-point acceptance scenario from the design brief
 ```
+
+`npm run accept` walks the acceptance scenario end to end — genesis, autonomous
+movement, time controls, observability, learning, mating, pregnancy, birth,
+growth, multi-generation survival, plant reproduction, predation, death, every god
+tool, and save/load equivalence — and prints a pass/fail line for each item. Items
+that are purely visual are marked as requiring the running app.
 
 ### Build the macOS app
 
 ```bash
-npm run desktop:build
+npm run app
 ```
 
-The bundle is written to `src-tauri/target/release/bundle/macos/EDEN-0.app`.
+`npm run app` wraps `tauri build` with the environment fixes this checkout needs
+(see `scripts/build-app.sh`): it selects the Command Line Tools developer
+directory, redirects `CARGO_TARGET_DIR` to a colon-free path, and moves `dist/`
+aside so Vite does not have to delete it.
+
+The bundle is written to:
+
+```
+src-tauri/target/release/bundle/macos/EDEN-0.app
+```
+
+If you prefer the raw command and your checkout path contains no `:`, plain
+`npm run desktop:build` works.
 
 ### Headless simulation
 
