@@ -40,7 +40,17 @@ export const EntityFlags = {
 /** Per-entity stride of the snapshot float buffer. */
 export const SNAPSHOT_FLOAT_STRIDE = 12;
 /** Per-entity stride of the snapshot metadata buffer. */
-export const SNAPSHOT_META_STRIDE = 4;
+/**
+ * Bytes of per-entity metadata in a snapshot.
+ *
+ * 0 = kind, 1 = sex, 2 = stage, 3 = flags, 4 = house.
+ *
+ * The house needed its own byte rather than a flag bit: `EntityFlags` is a
+ * single `Uint8Array` element and all eight bits were already spoken for, so a
+ * `1 << 10` house flag was silently discarded by the typed-array write. That
+ * cost an hour and is why the house is now a field rather than a bit.
+ */
+export const SNAPSHOT_META_STRIDE = 5;
 
 export type EventKind =
   | 'birth'
@@ -144,6 +154,23 @@ export interface WorldSnapshot {
   metrics: DevMetrics;
   /** Huts, finished and under construction. Small enough to send whole. */
   structures: StructureView[];
+}
+
+/**
+ * One house's standing in a competitive match.
+ *
+ * A house is a matrilineal lineage: every human belongs to the house of its
+ * mother, and a house with no living women is extinct for good.
+ */
+export interface HouseStats {
+  house: number;
+  population: number;
+  females: number;
+  males: number;
+  children: number;
+  deepestGeneration: number;
+  /** population x 100 + deepestGeneration x 25. */
+  score: number;
 }
 
 export interface StructureView {

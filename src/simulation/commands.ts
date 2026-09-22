@@ -9,12 +9,18 @@
 import type { World } from './world';
 import type { GodCommand } from '../shared/protocol';
 
-/** Apply one command. Returns a short human-readable outcome for the ack. */
-export function applyGodCommand(world: World, command: GodCommand): string {
+/**
+ * Apply one command. Returns a short human-readable outcome for the ack.
+ *
+ * `house` is only meaningful in competitive mode: a god-spawned human has no
+ * mother, so it is assigned to the observer who paid for it rather than
+ * inheriting a lineage.
+ */
+export function applyGodCommand(world: World, command: GodCommand, house = 0): string {
   switch (command.kind) {
     case 'spawnHuman':
-      world.spawnHuman(command.x, command.y);
-      return 'spawned a human';
+      world.spawnHuman(command.x, command.y, undefined, 18, house);
+      return house === 0 ? 'spawned a human' : `spawned a human for house ${house}`;
     case 'kill': {
       const human = world.getHuman(command.id);
       if (!human) return 'no such human';

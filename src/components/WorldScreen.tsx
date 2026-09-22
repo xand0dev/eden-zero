@@ -7,6 +7,7 @@ import { EventFeed } from './EventFeed';
 import { DevPanel } from './DevPanel';
 import { GenomeEditor } from './GenomeEditor';
 import { GenealogyPanel } from './GenealogyPanel';
+import { ScoreBoard } from './ScoreBoard';
 import { readAutosave, readManualSlot, unwrapSave, writeManualSlot, wrapSave, downloadSave, pickSaveFile } from '../simulation/persistence/save';
 import type { GodCommandKind } from '../shared/protocol';
 
@@ -297,6 +298,7 @@ export function WorldScreen({
             {formatDayPhase(state.dayPhase)} · {formatSimTime(state.simTime)} · tick {state.tick}
           </div>
         </div>
+        <ScoreBoard />
 
         <div className="godtools">
           <h3>God tools</h3>

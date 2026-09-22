@@ -12,7 +12,7 @@ import type {
 import { EntityKind, SNAPSHOT_FLOAT_STRIDE, SNAPSHOT_META_STRIDE } from '../shared/types';
 import type { GodCommand, MainToWorker, WorkerToMain, WorldConfig } from '../shared/protocol';
 import { SNAPSHOT_HZ_NORMAL } from '../shared/constants';
-import { RemoteTransport, type RemoteSnapshot, type RemoteStatus } from './remote';
+import { RemoteTransport, type MatchView, type RemoteSnapshot, type RemoteStatus } from './remote';
 
 /** One entity, decoded from the worker's typed arrays for the renderer. */
 export interface EntityView {
@@ -33,6 +33,8 @@ export interface EntityView {
   pregnancy: number;
   mating: number;
   age: number;
+  /** House affiliation in competitive mode; 0 for ordinary observatory. */
+  house: number;
 }
 
 export interface SimState {
@@ -61,6 +63,8 @@ export interface SimState {
   error: string | null;
   fps: number;
   workerLatencyMs: number;
+  /** Present only when the server is running a competitive match. */
+  match: MatchView | null;
 }
 
 const DEFAULT_METRICS: DevMetrics = {
@@ -143,6 +147,7 @@ export class SimClient {
     error: null,
     fps: 0,
     workerLatencyMs: 0,
+    match: null,
   };
 
   constructor() {
@@ -474,6 +479,7 @@ function decodeEntities(
       pregnancy: floats[f + 9],
       mating: floats[f + 10],
       age: floats[f + 11],
+      house: meta[m + 4],
     };
   }
   return out;

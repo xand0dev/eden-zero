@@ -26,6 +26,7 @@
     "serve": "./node_modules/.bin/tsx server/index.ts --speed 4",
     "smoke:server": "./node_modules/.bin/tsx scripts/server-smoke.ts",
     "bench": "./node_modules/.bin/tsx scripts/bench.ts",
+    "smoke:match": "./node_modules/.bin/tsx scripts/match-smoke.ts",
     "shared": "node scripts/shared-check.mjs"
   },
   "dependencies": {

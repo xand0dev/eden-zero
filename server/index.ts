@@ -34,6 +34,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { World, DEFAULT_WORLD_OPTIONS } from '../src/simulation/world';
 import { applyGodCommand } from '../src/simulation/commands';
 import { acceptUpgrade, WebSocketConnection } from './ws';
+import { DEFAULT_MATCH, Match } from './match';
 import { encodeFrame, WireType } from '../src/shared/wire';
 import { SNAPSHOT_FLOAT_STRIDE, SNAPSHOT_META_STRIDE } from '../src/shared/types';
 import { SNAPSHOT_HZ_NORMAL, SIM_HZ } from '../src/shared/constants';
@@ -52,6 +53,9 @@ const SEED = arg('seed', 'eden');
 const HUMANS = Number(arg('humans', '8'));
 const PREDATORS = Number(arg('predators', '2'));
 const DIST = resolve(process.cwd(), 'dist');
+// `--match` turns the world into a two-house competition. Off by default: the
+// same server hosts an ordinary observatory unless someone asks for a game.
+const MATCH_ENABLED = argv.includes('--match');
 
 // --- the world --------------------------------------------------------------
 
@@ -61,6 +65,8 @@ const world = new World({
   initialHumans: HUMANS,
   initialPredators: PREDATORS,
 });
+
+const match = new Match({ ...DEFAULT_MATCH, enabled: MATCH_ENABLED });
 
 let revision = 0;
 let running = true;
@@ -94,10 +100,12 @@ function packSnapshot(): { header: Record<string, unknown>; arrays: Uint8Array[]
   return {
     // The strides go in the header so the client can slice the payload without
     // duplicating the constants — one place to change if the layout ever moves.
-    header: { ...rest, floatStride: SNAPSHOT_FLOAT_STRIDE, metaStride: SNAPSHOT_META_STRIDE } as unknown as Record<
-      string,
-      unknown
-    >,
+    header: {
+      ...rest,
+      floatStride: SNAPSHOT_FLOAT_STRIDE,
+      metaStride: SNAPSHOT_META_STRIDE,
+      match: match.view(world),
+    } as unknown as Record<string, unknown>,
     arrays: [
       new Uint8Array(ids.buffer, ids.byteOffset, ids.byteLength),
       new Uint8Array(floats.buffer, floats.byteOffset, floats.byteLength),
@@ -124,7 +132,8 @@ function broadcast(): void {
 function onConnection(connection: WebSocketConnection): void {
   observers.add(connection);
   const slot = observers.size;
-  connection.context = { slot, commandsAccepted: 0 };
+  const player = match.enabled ? match.join(`observer ${slot}`) : null;
+  connection.context = { slot, commandsAccepted: 0, house: player ? player.house : 0 };
 
   connection.on('message', (message) => {
     if (message.binary) return;
@@ -158,6 +167,8 @@ function onConnection(connection: WebSocketConnection): void {
       tick: world.tick,
       slot,
       observers: observers.size,
+      match: match.enabled,
+      house: player ? player.house : 0,
     }),
     true,
   );
@@ -166,20 +177,45 @@ function onConnection(connection: WebSocketConnection): void {
 }
 
 function handleCommand(connection: WebSocketConnection, command: GodCommand): void {
+  const context = connection.context as { commandsAccepted: number; house: number } | null;
+  const house = context ? context.house : 0;
+
+  // A rule enforced in the client is not a rule. Every command is checked here,
+  // and a refusal is reported back rather than silently dropped.
+  if (match.enabled) {
+    const player = match.getSlot(house);
+    if (!player) {
+      sendAck(connection, command.kind, 'you are not in this match');
+      return;
+    }
+    const refusal = match.authorise(world, player, command);
+    if (refusal) {
+      sendAck(connection, command.kind, `refused: ${refusal}`);
+      return;
+    }
+  }
+
   let outcome: string;
   try {
-    outcome = applyGodCommand(world, command);
+    outcome = applyGodCommand(world, command, house);
   } catch (error) {
     outcome = `failed: ${(error as Error).message}`;
   }
-  const context = connection.context as { commandsAccepted: number } | null;
   if (context) context.commandsAccepted += 1;
 
   // Everyone hears about it, so two observers watching the same world see each
   // other's interventions rather than silently disagreeing about what happened.
-  const ack = encodeFrame(WireType.Ack, { command: command.kind, outcome, tick: world.tick });
-  for (const observer of observers) observer.send(ack, true);
+  for (const observer of observers) {
+    observer.send(
+      encodeFrame(WireType.Ack, { command: command.kind, outcome, tick: world.tick, house }),
+      true,
+    );
+  }
   broadcast();
+}
+
+function sendAck(connection: WebSocketConnection, kind: string, outcome: string): void {
+  connection.send(encodeFrame(WireType.Ack, { command: kind, outcome, tick: world.tick }), true);
 }
 
 // --- static files -----------------------------------------------------------
@@ -263,7 +299,10 @@ const broadcastEvery = Math.max(1, Math.round((1000 / SNAPSHOT_HZ_NORMAL) / inte
 let intervalCount = 0;
 const loop = setInterval(() => {
   if (!running) return;
-  for (let i = 0; i < ticksPerInterval; i++) world.step();
+  for (let i = 0; i < ticksPerInterval; i++) {
+    world.step();
+    match.tick(world);
+  }
   intervalCount += 1;
   if (intervalCount % broadcastEvery === 0) broadcast();
 }, intervalMs);
@@ -275,6 +314,11 @@ server.listen(PORT, HOST, () => {
   console.log(`  observers  ws://${HOST}:${PORT}/world`);
   console.log(`  client     http://${HOST}:${PORT}/`);
   console.log(`  static     ${DIST}`);
+  if (match.enabled) {
+    console.log(`  match      two houses, ${DEFAULT_MATCH.durationSeconds}s, influence ${DEFAULT_MATCH.startingInfluence}`);
+  } else {
+    console.log('  match      off (pass --match for the two-house game)');
+  }
 });
 
 function shutdown(): void {

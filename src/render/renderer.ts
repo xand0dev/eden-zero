@@ -560,6 +560,9 @@ export class WorldRenderer {
         sprite.position.set(pose.x, pose.y);
         // Sprites are authored facing "up"; the world's heading 0 points along +x.
         sprite.rotation = pose.heading + Math.PI / 2;
+        // In competitive mode house 1 gets a cool shift so the two lineages are
+        // visually distinct at a glance without losing the individual variation.
+        const hue = entity.house === 1 ? (entity.hue + 0.45) % 1 : entity.hue;
         sprite.update(
           dt,
           entity.action,
@@ -568,7 +571,7 @@ export class WorldRenderer {
           entity.pregnancy,
           entity.mating,
           entity.size * SPRITE_SCALE,
-          entity.hue,
+          hue,
           entity.saturation,
           entity.lightness,
         );

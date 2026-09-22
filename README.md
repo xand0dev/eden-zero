@@ -198,6 +198,11 @@ smooth at 60 fps while snapshots arrive at 20 Hz, and god commands get optimisti
 local feedback reconciled against the next authoritative snapshot. Saying otherwise
 would be overselling it.
 
+**Competitive mode.** Pass `--match` to the server and the world becomes a game:
+two houses, matrilineal inheritance, a scoreboard, and command authorisation so you
+can only god-handle your own lineage. The same WebSocket transport and interpolation
+run underneath — the match is a rules layer, not a separate build.
+
 That interpolation is measured, not asserted: `scripts/shared-check.mjs` counts
 distinct rendered positions against snapshots received. Without interpolation the
 former can never exceed the latter. Current reading: **53 poses from 30 snapshots**.
@@ -396,6 +401,7 @@ npm run accept      # the 50-point acceptance scenario from the design brief
 npm run smoke:server # boots the server and drives it over a real socket
 npm run balance     # ecology across a batch of seeds
 npm run bench       # per-tick cost and how it scales with population
+npm run smoke:match # competitive two-house mode end-to-end
 ```
 
 `npm run accept` walks the acceptance scenario end to end — genesis, autonomous

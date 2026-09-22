@@ -62,8 +62,9 @@ Fifty-three distinct positions from thirty snapshots is not a claim, it is a
 measurement — and it is the kind of claim that is very easy to make in a README
 without anyone checking.
 
-Two of eight weeks are honestly incomplete, and both are listed in the roadmap
-rather than glossed over.
+One item is honestly incomplete: the public URL. Everything else is done; the
+repository is still private and there is no deployment yet.
+
 
 ---
 

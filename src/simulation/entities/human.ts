@@ -225,6 +225,15 @@ export class Human {
   fatherId: number | null = null;
   childrenIds: number[] = [];
   generation = 0;
+  /**
+   * Which house this individual belongs to.
+   *
+   * Only meaningful in competitive mode, where the founding population is split
+   * between two observers and every descendant inherits its mother's house. In
+   * the ordinary single-observer world every human is house 0 and nothing reads
+   * this.
+   */
+  house = 0;
   mateCount = 0;
   offspringCount = 0;
 
@@ -1292,6 +1301,7 @@ export class Human {
       mating: this.mating,
       matingCooldown: this.matingCooldown,
       recovery: this.recovery,
+      house: this.house,
       wood: this.wood,
       homeX: this.homeX,
       homeY: this.homeY,
@@ -1359,6 +1369,7 @@ export class Human {
     human.mating = (data.mating as MatingState | null) ?? null;
     human.matingCooldown = data.matingCooldown as number;
     human.recovery = data.recovery as number;
+    human.house = (data.house as number) ?? 0;
     human.wood = (data.wood as number) ?? 0;
     human.homeX = (data.homeX as number) ?? human.x;
     human.homeY = (data.homeY as number) ?? human.y;

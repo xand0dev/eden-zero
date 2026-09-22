@@ -16,6 +16,7 @@ import { WireType, decodeFrame, viewOf } from '../shared/wire';
 import type { GodCommand } from '../shared/protocol';
 import type {
   DevMetrics,
+  HouseStats,
   StructureView,
   WorldEffect,
   WorldEvent,
@@ -37,6 +38,17 @@ export interface RemoteSnapshot {
   effects: WorldEffect[];
   structures: StructureView[];
   metrics: DevMetrics;
+  /** Present only when the server is running a competitive match. */
+  match: MatchView | null;
+}
+
+export interface MatchView {
+  houses: HouseStats[];
+  elapsedSeconds: number;
+  durationSeconds: number;
+  active: boolean;
+  ended: boolean;
+  winner: number | null;
 }
 
 export interface RemoteHandlers {
@@ -186,5 +198,6 @@ function decodeSnapshot(header: Record<string, unknown>, payload: Uint8Array): R
     effects: (header.effects as WorldEffect[]) ?? [],
     structures: (header.structures as StructureView[]) ?? [],
     metrics: (header.metrics as DevMetrics) ?? ({} as DevMetrics),
+    match: (header.match as MatchView | undefined) ?? null,
   };
 }

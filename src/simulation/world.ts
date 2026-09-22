@@ -7,6 +7,7 @@ import { Human, MATING_DURATION, MATING_REFRACTORY } from './entities/human';
 import { Predator } from './entities/predator';
 import { Plant, PlantSpecies, SPECIES_PROFILES } from './entities/plant';
 import { Structure, WOOD_PER_HUT, type StructureData } from './entities/structure';
+import type { HouseStats } from '../shared/types';
 import type { SimWorld } from './entities/context';
 import { cloneGenome, randomGenome, geneDef, sanitizeGenome, type GeneKey, type Genome } from './genetics/genome';
 import { reproduce } from './genetics/evolution';
@@ -264,6 +265,10 @@ export class World implements SimWorld {
       human.thirst = this.rng.range(3, 10);
       human.fatigue = this.rng.range(2, 10);
       human.generation = 0;
+      // Founders alternate between the two houses so a competitive match starts
+      // from a fair split. In a single-observer world this is harmless: nothing
+      // reads `house` unless a match is running.
+      human.house = i % 2;
       this.humans.push(human);
       this.humanById.set(human.id, human);
     }
@@ -749,6 +754,10 @@ export class World implements SimWorld {
     baby.motherId = mother.id;
     baby.fatherId = father ? father.id : null;
     baby.generation = Math.max(mother.generation, father ? father.generation : 0) + 1;
+    // Matrilineal: a child belongs to its mother's house. This is what makes a
+    // house a lineage rather than a label, and it means a house can only grow
+    // through its own women.
+    baby.house = mother.house;
     baby.health = 100;
     baby.energy = 80;
     baby.hunger = 20;
@@ -902,7 +911,7 @@ export class World implements SimWorld {
   // God mode
   // ---------------------------------------------------------------------
 
-  spawnHuman(x: number, y: number, genome?: Genome, ageBio = 18): Human {
+  spawnHuman(x: number, y: number, genome?: Genome, ageBio = 18, house = 0): Human {
     if (this.humans.length >= MAX_POPULATION) {
       this.emitEvent('god', 'Population cap reached — no new human was created.', []);
       return this.humans[0];
@@ -919,6 +928,9 @@ export class World implements SimWorld {
     human.stage = ageBio < 1.5 ? LifeStage.Baby : ageBio < 12 ? LifeStage.Child : LifeStage.Adult;
     human.energy = 92;
     human.generation = this.maxGeneration;
+    // A god-spawned human has no mother, so its house is assigned rather than
+    // inherited — in competitive mode it belongs to the observer who paid.
+    human.house = house;
     this.humans.push(human);
     this.humanById.set(human.id, human);
     this.emitEvent('god', `${name} was created by the observer.`, [human.id]);
@@ -1095,6 +1107,43 @@ export class World implements SimWorld {
       ambientTemperature: this.ambientTemperatureAt(this.terrain.width / 2, this.terrain.height / 2),
       climateOffset: this.climate.globalOffset,
     };
+  }
+
+  /**
+   * Per-house scoreboard.
+   *
+   * The competitive mode's whole score function. A house is worth its living
+   * members, with a small bonus per generation reached — so a house that survives
+   * deep is worth more than one that merely breeds wide, and going extinct is
+   * unrecoverable because a house can only grow through its own women.
+   */
+  houseStats(): HouseStats[] {
+    const houses: HouseStats[] = [0, 1].map((house) => ({
+      house,
+      population: 0,
+      females: 0,
+      males: 0,
+      children: 0,
+      deepestGeneration: 0,
+      score: 0,
+    }));
+
+    for (const human of this.humans) {
+      if (!human.alive) continue;
+      const entry = houses[human.house === 1 ? 1 : 0];
+      entry.population += 1;
+      if (human.sex === Sex.Female) entry.females += 1;
+      else entry.males += 1;
+      if (human.stage === LifeStage.Baby || human.stage === LifeStage.Child) entry.children += 1;
+      if (human.generation > entry.deepestGeneration) entry.deepestGeneration = human.generation;
+    }
+
+    for (const entry of houses) {
+      // Population is the score; generation depth is the tiebreaker and the
+      // reason to keep a lineage alive rather than merely numerous.
+      entry.score = entry.population * 100 + entry.deepestGeneration * 25;
+    }
+    return houses;
   }
 
   humanDetail(id: number): HumanDetail | null {
@@ -1383,6 +1432,7 @@ export class World implements SimWorld {
       pregnancy01: number,
       mating01: number,
       age01: number,
+      house: number,
     ): void => {
       ids[index] = id;
       const f = index * SNAPSHOT_FLOAT_STRIDE;
@@ -1403,6 +1453,7 @@ export class World implements SimWorld {
       meta[m + 1] = sex;
       meta[m + 2] = stage;
       meta[m + 3] = flags;
+      meta[m + 4] = house;
       index++;
     };
 
@@ -1435,6 +1486,7 @@ export class World implements SimWorld {
         human.pregnancyProgress(),
         human.mating ? human.mating.progress : 0,
         Math.min(1, human.ageBio / human.genome.lifespan),
+        human.house,
       );
     }
 
@@ -1460,6 +1512,7 @@ export class World implements SimWorld {
         0,
         0,
         Math.min(1, predator.ageBio / predator.genome.lifespan),
+        0,
       );
     }
 
@@ -1479,6 +1532,7 @@ export class World implements SimWorld {
         profile.saturation,
         profile.lightness,
         plant.foodFraction(),
+        0,
         0,
         0,
         0,

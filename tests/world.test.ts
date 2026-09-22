@@ -282,7 +282,7 @@ describe('observability', () => {
     });
     expect(snapshot.ids.length).toBe(snapshot.count);
     expect(snapshot.floats.length).toBe(snapshot.count * 12);
-    expect(snapshot.meta.length).toBe(snapshot.count * 4);
+    expect(snapshot.meta.length).toBe(snapshot.count * 5);
     expect(snapshot.stats.population).toBe(world.humans.length);
   });
 });
