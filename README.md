@@ -210,6 +210,8 @@ former can never exceed the latter. Current reading: **53 poses from 30 snapshot
 
 - **[docs/SUBMISSION.md](docs/SUBMISSION.md)** — which labs this answers, the JS
   course gap analysis, the reflection, and the honest list of what is weak.
+- **[docs/PROFILING.md](docs/PROFILING.md)** — a real V8 CPU profile: where the
+  time goes, and the assumption the profile disproved.
 - **[MANIFESTO.md](MANIFESTO.md)** — the Lab 42 capstone document.
 
 ---
@@ -393,6 +395,7 @@ npm test            # 109 unit + integration tests
 npm run accept      # the 50-point acceptance scenario from the design brief
 npm run smoke:server # boots the server and drives it over a real socket
 npm run balance     # ecology across a batch of seeds
+npm run bench       # per-tick cost and how it scales with population
 ```
 
 `npm run accept` walks the acceptance scenario end to end — genesis, autonomous

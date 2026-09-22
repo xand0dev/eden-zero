@@ -41,8 +41,8 @@ Checking the project against each week:
 | 4 | Node streams and WebSockets | **Covered** — `server/ws.ts` implements RFC 6455 by hand: upgrade handshake, masking, fragmentation, control frames, close semantics. No `ws` dependency. |
 | 5 | Prediction, reconciliation, binary protocol | **Mostly covered.** The binary protocol is real — a JSON header plus concatenated `Int32Array`/`Float32Array`/`Uint8Array` payloads, big-endian, sent as `ArrayBuffer`. Client-side *prediction* is not implemented and I am not going to claim it is: an observer controls nothing that needs predicting. What the client does instead is interpolate between the last two snapshots, and that is verified rather than asserted — see the measurement below. God commands get optimistic local feedback reconciled against the next authoritative snapshot. |
 | 6 | TypeScript | **Covered.** ~11 000 lines of strict TypeScript, `strict: true`, no `any` in the simulation core. |
-| 7 | V8 internals, profiling, tests | **Partly covered.** 109 tests, and a dev panel reporting ticks/s, frame time, tick cost and snapshot bytes. A written V8 profiling report is **not** done yet. |
-| 8 | Docker, CI/CD, public URL | **Covered.** Multi-stage `Dockerfile`, GitHub Actions running typecheck → tests → build → server smoke test → acceptance → container build and boot. Public URL pending. |
+| 7 | V8 internals, profiling, tests | **Covered.** 124 tests, a dev panel reporting ticks/s, frame time, tick cost and snapshot bytes, and a real V8 CPU profile: `npm run bench` for wall-clock cost, `--cpu-prof` plus `scripts/profile-report.mjs` for self time. Written up in **[docs/PROFILING.md](PROFILING.md)**, including the assumption the profile disproved. |
+| 8 | Docker, CI/CD, public URL | **Mostly covered.** Multi-stage `Dockerfile`, GitHub Actions running typecheck → tests → build → server smoke test → acceptance → container build and boot. The public URL is the one item still outstanding. |
 
 **Proving the interpolation claim.** Snapshots arrive at 20 Hz; the renderer draws
 at 60 fps. Without interpolation a sprite can only change position when a snapshot
@@ -196,7 +196,7 @@ next, and it is a more honest portfolio piece.
   hours and three of them grow, but roughly a third still decline. The mechanisms
   are present and the population is no longer fragile; the balance is not yet such
   that every world thrives.
-- **Two JS-course weeks are incomplete.** No V8 profiling report, no public URL.
+- **One JS-course item is incomplete: the public URL.** Everything else is done; the repository is still private and there is no deployment yet.
 - **Predator reproduction is asexual.** It reuses the `mate` motor but not the
   mating machinery. Humans have real sexual reproduction with crossover and
   mutation; predators bud. That is a shortcut and it is labelled as one.

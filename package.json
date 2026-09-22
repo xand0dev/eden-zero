@@ -24,7 +24,9 @@
     "app": "bash scripts/build-app.sh",
     "server": "./node_modules/.bin/tsx server/index.ts",
     "serve": "./node_modules/.bin/tsx server/index.ts --speed 4",
-    "smoke:server": "./node_modules/.bin/tsx scripts/server-smoke.ts"
+    "smoke:server": "./node_modules/.bin/tsx scripts/server-smoke.ts",
+    "bench": "./node_modules/.bin/tsx scripts/bench.ts",
+    "shared": "node scripts/shared-check.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",
