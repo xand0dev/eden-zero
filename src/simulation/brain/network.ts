@@ -165,13 +165,22 @@ const INNATE_PRIORS: ReadonlyArray<readonly [number, number, number]> = [
   [S.attachment, MOTOR(M.moveFwd), 0.1],
   [S.familiarity, MOTOR(M.moveFwd), 0.06],
   [S.familiarity, MOTOR(M.signal), 0.08],
-  // Threat avoidance.
-  [S.threatFront, MOTOR(M.moveBack), 0.55],
+  // Threat avoidance — flight.
+  //
+  // These have to be strong enough to actually outrun a predator, and the
+  // original values (0.55 retreat, 0.35 sprint) were nowhere near. The read-out
+  // measures drive against an adapting baseline, so 0.55 produced a command of
+  // about 0.17 and the animal backed away at roughly 0.5 tiles/s while a predator
+  // closed at 3.4. Flight was, in effect, disabled: humans stood still and were
+  // eaten. With these weights a frightened adult retreats at about 4.8 tiles/s,
+  // which is faster than a predator, so being caught means being cornered rather
+  // than merely noticed.
+  [S.threatFront, MOTOR(M.moveBack), 1.9],
   [S.threatFront, MOTOR(M.moveFwd), -0.4],
-  [S.threatFront, MOTOR(M.sprint), 0.35],
+  [S.threatFront, MOTOR(M.sprint), 1.5],
   [S.threatFront, MOTOR(M.attack), 0.18],
-  [S.threatRight, MOTOR(M.turnLeft), 0.4],
-  [S.threatLeft, MOTOR(M.turnRight), 0.4],
+  [S.threatRight, MOTOR(M.turnLeft), 0.8],
+  [S.threatLeft, MOTOR(M.turnRight), 0.8],
   // Resource approach (salience is already scaled by internal need upstream).
   //
   // These are by far the strongest innate weights in the brain, and deliberately

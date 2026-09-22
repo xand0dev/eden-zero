@@ -45,7 +45,7 @@ import type { InheritanceReport } from './genetics/evolution';
  * to twelve people who spend most of their time foraging in different
  * directions, two mutually willing adults rarely pass within two tiles.
  */
-const MATING_RADIUS = 3.4;
+const MATING_RADIUS = 5;
 
 /**
  * Everything we keep about a birth, so the inspector can later answer

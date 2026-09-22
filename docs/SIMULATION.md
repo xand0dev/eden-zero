@@ -409,9 +409,19 @@ which is what real animals do:
 - conspecific sensory salience is multiplied by `0.6 + libido`
 - `human → approach` priors were raised from 0.12 to 0.5 (forward) and 0.1 to 0.45
   (turning), so a willing adult can actually walk over to a partner it can see
+- the pairing radius is 5 tiles
 
-Result: births went from **4.0 to 12.6 per simulated hour**, matings from 26 to 60,
-and conception success from 42% to 58%.
+Result: births went from **4.0 to 12.6 per simulated hour**, pairings from 7 to 16
+per 80k ticks, conception success from 42% to 88%, and offspring per female from
+1.5 to 3.5.
+
+**A rejected idea, kept here because it is instructive.** Extending the conspecific
+*sensing range* by libido (up to ~2.2× visual range) on the theory that a ready
+animal advertises over a longer distance measured *worse*. With a strong
+`human → approach` prior, a long-range social signal pulls animals away from food
+and water: the seed that had been thriving collapsed to three survivors inside
+twenty-five simulated minutes. Mate search is a salience effect, not a range
+effect.
 
 ### Reproductive cycle
 
@@ -423,23 +433,39 @@ and gestation (0.72 → 0.55 biological years) raised the ceiling directly.
 ### Predator balance
 
 Predators have no natural enemy and their only limit is prey, so their numbers set
-how hard they press the humans. Three numbers had to change:
+how hard they press the humans. Four things had to change.
+
+- **Flight.** This was the real bug, and it took a while to see because it is a
+  *missing* behaviour rather than a wrong number. The threat priors were
+  `threatFront → moveBack 0.55` and `→ sprint 0.35`. Because the read-out measures
+  drive against an adapting baseline, 0.55 produced a command of about 0.17: a
+  frightened human backed away at roughly 0.5 tiles/s while a predator closed at
+  3.4. Flight was effectively disabled — humans stood still and were eaten. The
+  weights are now 1.9 (retreat) and 1.5 (sprint), giving a retreat speed of about
+  4.8 tiles/s, faster than a predator. Being caught now means being *cornered*.
 
 - **Damage per bite.** At one bite every 4 ticks for ~25 damage, a predator killed
   a human in well under a second, and three predators erased a village of eight in
   three simulated minutes — ten of twelve deaths were predation. Bites now land
-  every 14 ticks for ~12 damage, so a kill takes several seconds of sustained
-  contact and a sprinting human can break away.
+  every 14 ticks, so a kill takes roughly twenty seconds of sustained contact.
+
+  A caution for anyone tuning this: `attackPower` is a 0.2–30 gene with a typical
+  value near **7**, not near 100. A first attempt to soften predation dropped the
+  damage scale to 0.12, which made a bite worth under one point and turned
+  predators into harmless scenery. `npm run predator` measures the actual kill
+  time rather than trusting the constant.
+
 - **Reproduction rate.** At a 900-tick cooldown three predators became six within
   a simulated hour, overshot the prey base and drove the village to a single
   female. The cooldown is now 3000 ticks with a higher energy requirement.
+
 - **Where they are released.** Predators used to spawn uniformly at random across
   a 176×128 map, which is almost always tens of tiles from the only people in the
   world; two predators released that way both starved without ever meeting a
   human. They now appear in the wilderness 16–34 tiles from the founding village.
 
 Predator speed is 3.4 tiles/s: faster than a walking human (3.05), slower than a
-sprinting one. Flight works.
+sprinting one (up to 5.5). Flight works.
 
 ### Current measured behaviour
 

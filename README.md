@@ -219,34 +219,40 @@ Three fixes followed:
 
 - **Mate search.** Conspecific salience is now scaled by libido, and the
   `human → approach` priors went from 0.12 to 0.5 — a reproductively ready animal
-  pays attention to other animals, which is what real animals do.
+  pays attention to other animals, which is what real animals do. Births went from
+  4.0 to 12.6 per simulated hour and conception success from 42% to 88%.
 - **Reproductive cycle.** A female was unavailable while pregnant, while
   recovering and during the mating refractory. Shortening recovery and gestation
   raised the ceiling directly.
-- **Predator pressure.** Predators bit every 0.2 s for ~25 damage, which killed a
-  human in under a second; three of them erased a village of eight in three
-  simulated minutes. Bites now land every 0.7 s, predators reproduce five times
-  more slowly, and they are released in the wilderness around the village rather
-  than uniformly across the map (where they starved without ever meeting anyone).
+- **Flight.** This was the real bug behind predation, and it is a *missing*
+  behaviour rather than a wrong number. The threat priors were so weak that a
+  frightened human backed away at ~0.5 tiles/s while a predator closed at 3.4 —
+  flight was effectively disabled and humans simply stood still and were eaten.
+  They now retreat at ~4.8 tiles/s. Being caught means being *cornered*.
+- **Predator pressure.** Predators bit every 0.2 s and reproduced five times
+  faster than they should; they also spawned uniformly across the map, where they
+  starved without ever meeting anyone. Bites now land every 0.7 s, reproduction is
+  far slower, and they are released in the wilderness around the village.
 
-Measured across six seeds, 1.4 simulated hours each, from eight founders:
+Measured across six seeds, 1.4 simulated hours each, from eight founders with two
+predators:
 
 ```
   seed       final pop   generation   births/h  deaths/h   outcome
-  eden            27          3          23.8      10.1     thriving
-  orion            1          1           2.9       7.9     declining
-  vela             6          3           6.5       7.9     declining
-  lumen           16          2          17.3      11.5     thriving
-  tessera         34          3          36.7      18.0     thriving
-  auriga          10          3          10.8       9.4     stable
+  eden             9          2          11.5      10.8     stable
+  orion            4          2           6.5       9.4     declining
+  vela             2          2           5.8      10.1     declining
+  lumen            7          1           7.2       7.9     declining
+  tessera         15          3          15.8      10.8     thriving
+  auriga          29          3          28.8      13.7     thriving
 
-  6/6 survived · 4/6 with births ≥ deaths · mean final population 15.7
+  6/6 survived · 3/6 with births ≥ deaths · mean final population 11.0
 ```
 
-Worlds no longer reliably go extinct, and some grow fourfold. Outcomes still vary
-by seed — with eight founders, genetic drift and plain luck dominate, which is the
-honest behaviour of a small founding population and exactly the situation the god
-tools exist for. Reproduce these numbers with:
+Worlds no longer reliably go extinct, and two of six grew three- to fourfold.
+Outcomes still vary by seed — with eight founders, genetic drift and plain luck
+dominate, which is the honest behaviour of a small founding population and exactly
+the situation the god tools exist for. Reproduce these numbers with:
 
 ```bash
 npm run balance

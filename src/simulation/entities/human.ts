@@ -65,7 +65,7 @@ export const MATING_DURATION = 7;
  * cooldowns) and duplicating the number there is how the two drifted apart
  * before.
  */
-export const MATING_REFRACTORY = 38;
+export const MATING_REFRACTORY = 26;
 
 const ATTACK_REACH = 1.5;
 const ATTACK_INTERVAL_TICKS = 4;
@@ -409,6 +409,14 @@ export class Human {
     }
 
     // --- conspecifics -----------------------------------------------------
+    // --- conspecifics -----------------------------------------------------
+    //
+    // Range is plain visual range. An earlier version extended it by libido (up
+    // to ~2.2x) on the theory that a ready animal advertises over a longer range.
+    // It measured *worse*: with a strong `human -> approach` prior, a long-range
+    // social signal pulls animals away from food and water, and the seed that had
+    // been thriving collapsed to three survivors inside twenty-five simulated
+    // minutes. Mate search is a salience effect, not a range effect.
     const humanCount = world.queryHumans(this.x, this.y, vision, this.scratch);
     let nearestHumanDx = 0;
     let nearestHumanDy = 0;

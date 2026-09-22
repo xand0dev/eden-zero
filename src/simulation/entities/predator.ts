@@ -52,7 +52,7 @@ const ATTACK_REACH = 1.75;
  * human to break away, and short enough that being cornered is fatal.
  */
 const ATTACK_INTERVAL_TICKS = 14;
-const ATTACK_DAMAGE_SCALE = 0.5;
+const ATTACK_DAMAGE_SCALE = 0.32;
 const REACH = 1.5;
 const BITE_SIZE = 0.4;
 const BITE_INTERVAL_TICKS = 6;
