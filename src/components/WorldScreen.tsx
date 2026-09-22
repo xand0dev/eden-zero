@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { sim, useSim, formatSimTime, formatDayPhase } from '../ui/sim';
+import { sim, useSim, formatSimTime, formatDayPhase, debugEnabled } from '../ui/sim';
 import { WorldRenderer } from '../render/renderer';
 import { generateTerrain } from '../simulation/environment/terrain';
 import { Inspector } from './Inspector';
@@ -50,6 +50,11 @@ export function WorldScreen({
       onFps: (fps) => sim.reportFps(fps),
     });
     rendererRef.current = renderer;
+    // Read-only handle used by scripts/shared-check.mjs to verify that motion is
+    // interpolated rather than snapped to the snapshot rate.
+    if (debugEnabled) {
+      (window as unknown as Record<string, unknown>).__edenRenderer = renderer;
+    }
 
     void renderer.init(container).then(() => {
       // React StrictMode mounts, unmounts and remounts effects in development.

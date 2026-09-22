@@ -193,10 +193,14 @@ Snapshots travel as a JSON header plus concatenated `Int32Array` / `Float32Array
 
 This is observer mode, not client-authoritative multiplayer. An observer controls
 nothing that needs predicting, so there is no client-side prediction of simulation
-state — the client interpolates between the last two snapshots so motion is smooth
-at 60 fps while snapshots arrive at 20 Hz, and god commands get optimistic local
-feedback reconciled against the next authoritative snapshot. Saying otherwise would
-be overselling it.
+state — the client **interpolates** between the last two snapshots so motion is
+smooth at 60 fps while snapshots arrive at 20 Hz, and god commands get optimistic
+local feedback reconciled against the next authoritative snapshot. Saying otherwise
+would be overselling it.
+
+That interpolation is measured, not asserted: `scripts/shared-check.mjs` counts
+distinct rendered positions against snapshots received. Without interpolation the
+former can never exceed the latter. Current reading: **53 poses from 30 snapshots**.
 
 `npm run smoke:server` boots the real server and drives it over a real socket.
 

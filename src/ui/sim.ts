@@ -16,6 +16,16 @@ export const sim = new SimClient();
  * decision, not something an observer should have to discover in a menu.
  */
 const params = new URLSearchParams(window.location.search);
+
+/**
+ * Whether the page exposes debug handles on `window`.
+ *
+ * Development builds always do. A production build requires an explicit
+ * `?debug=1`, so a deployed world has no back door unless whoever deployed it
+ * asked for one — and the URL makes that visible rather than hidden.
+ */
+export const debugEnabled = import.meta.env.DEV || params.has('debug');
+
 const server = params.get('server');
 if (server) {
   const url = server === 'auto' ? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/world` : server;
@@ -24,11 +34,7 @@ if (server) {
 
 // Expose the client so the UI can be driven from a script
 // (see scripts/verify-ui.mjs and scripts/shared-check.mjs).
-//
-// In development this is always on. In a production build it requires an explicit
-// `?debug=1`, so a deployed world has no back door unless whoever deployed it asks
-// for one — and the URL makes that visible rather than hidden.
-if (import.meta.env.DEV || params.has('debug')) {
+if (debugEnabled) {
   (window as unknown as Record<string, unknown>).__eden = sim;
 }
 

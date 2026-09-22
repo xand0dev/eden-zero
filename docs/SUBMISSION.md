@@ -39,10 +39,28 @@ Checking the project against each week:
 | 2 | Objects, `class`, `this` | **Covered.** Every entity is a class; the brain is a flat typed-array solver behind a class facade. |
 | 3 | Promises and async | **Covered.** Worker RPC with request ids and a timeout; the server's accept loop is async. |
 | 4 | Node streams and WebSockets | **Covered** — `server/ws.ts` implements RFC 6455 by hand: upgrade handshake, masking, fragmentation, control frames, close semantics. No `ws` dependency. |
-| 5 | Prediction, reconciliation, binary protocol | **Partly covered.** The binary protocol is real — a JSON header plus concatenated `Int32Array`/`Float32Array`/`Uint8Array` payloads, big-endian, sent as `ArrayBuffer`. Prediction is **not** applicable in observer mode (an observer controls nothing that needs predicting) and I am not going to claim otherwise. What the client does instead is interpolate between the last two snapshots. God commands get optimistic local feedback and are reconciled against the next authoritative snapshot. |
+| 5 | Prediction, reconciliation, binary protocol | **Mostly covered.** The binary protocol is real — a JSON header plus concatenated `Int32Array`/`Float32Array`/`Uint8Array` payloads, big-endian, sent as `ArrayBuffer`. Client-side *prediction* is not implemented and I am not going to claim it is: an observer controls nothing that needs predicting. What the client does instead is interpolate between the last two snapshots, and that is verified rather than asserted — see the measurement below. God commands get optimistic local feedback reconciled against the next authoritative snapshot. |
 | 6 | TypeScript | **Covered.** ~11 000 lines of strict TypeScript, `strict: true`, no `any` in the simulation core. |
 | 7 | V8 internals, profiling, tests | **Partly covered.** 109 tests, and a dev panel reporting ticks/s, frame time, tick cost and snapshot bytes. A written V8 profiling report is **not** done yet. |
 | 8 | Docker, CI/CD, public URL | **Covered.** Multi-stage `Dockerfile`, GitHub Actions running typecheck → tests → build → server smoke test → acceptance → container build and boot. Public URL pending. |
+
+**Proving the interpolation claim.** Snapshots arrive at 20 Hz; the renderer draws
+at 60 fps. Without interpolation a sprite can only change position when a snapshot
+arrives, so the number of *distinct rendered positions* can never exceed the number
+of snapshots. `scripts/shared-check.mjs` samples every sprite on every animation
+frame and measures the entity that walked furthest:
+
+```
+frames drawn:             53
+snapshots in that window: 30
+distinct rendered poses:  53
+entity travelled:         24.610 tiles
+verdict: INTERPOLATED — 53 poses from 30 snapshots
+```
+
+Fifty-three distinct positions from thirty snapshots is not a claim, it is a
+measurement — and it is the kind of claim that is very easy to make in a README
+without anyone checking.
 
 Two of eight weeks are honestly incomplete, and both are listed in the roadmap
 rather than glossed over.

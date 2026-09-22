@@ -4,6 +4,7 @@ import { EntityKind } from '../shared/types';
 import type { EntityView } from '../worker/client';
 import { HumanoidSprite, hslToHex } from './humanoid';
 import { StructureSprite } from './structure';
+import { interpolatePose, smoothInterval, snapshotAlpha } from './interpolate';
 import { TILE_NAMES, type TerrainData } from '../simulation/environment/terrain';
 import { PLANT_SPECIES_NAMES, PlantSpecies, SPECIES_PROFILES } from '../simulation/entities/plant';
 import type { StructureView, WorldEffect } from '../shared/types';
@@ -76,7 +77,6 @@ export class WorldRenderer {
   private readonly predatorSprites = new Map<number, HumanoidSprite>();
   private readonly spritePool: HumanoidSprite[] = [];
   /** Previous frame positions, used to derive locomotion speed for animation. */
-  private readonly lastPositions = new Map<number, { x: number; y: number }>();
 
   private readonly effects = new Map<number, { graphic: Graphics; kind: string }>();
   private readonly selectionRing = new Graphics();
@@ -99,6 +99,14 @@ export class WorldRenderer {
 
   private lastPlantRedraw = 0;
   private cameraFramed = false;
+
+  // --- snapshot interpolation ---------------------------------------------
+  /** Entities from the previous snapshot, keyed by id, for interpolation. */
+  private previousById = new Map<number, EntityView>();
+  /** performance.now() when the most recent snapshot was applied. */
+  private snapshotAt = 0;
+  /** Smoothed gap between snapshots, in milliseconds. */
+  private snapshotIntervalMs = 0;
   private frameCount = 0;
   private fpsAccumulator = 0;
   private lastFpsTime = 0;
@@ -405,6 +413,17 @@ export class WorldRenderer {
   }
 
   onEntities(entities: EntityView[]): void {
+    // Rotate the interpolation samples: what is current now becomes the previous
+    // sample the renderer interpolates away from on the next frames.
+    const now = performance.now();
+    if (this.snapshotAt > 0) {
+      this.snapshotIntervalMs = smoothInterval(this.snapshotIntervalMs, now - this.snapshotAt);
+    }
+    this.snapshotAt = now;
+
+    this.previousById.clear();
+    for (const entity of this.lastEntities) this.previousById.set(entity.id, entity);
+
     this.lastEntities = entities;
 
     // Frame the inhabitants the first time we see them.
@@ -464,29 +483,58 @@ export class WorldRenderer {
     }
   }
 
+  /**
+   * Interpolated sprite positions, for verification only.
+   *
+   * Snapshot interpolation is the kind of feature that is easy to *claim* and hard
+   * to see: at 60 fps a world that snaps to 20 Hz snapshots still looks like it is
+   * moving. This accessor exists so a script can prove the rendered position
+   * changes on frames where no snapshot arrived.
+   */
+  debugEntityPositions(): Array<{ id: number; x: number; y: number }> {
+    const out: Array<{ id: number; x: number; y: number }> = [];
+    for (const [id, sprite] of this.humanSprites) {
+      out.push({ id, x: sprite.position.x, y: sprite.position.y });
+    }
+    for (const [id, sprite] of this.predatorSprites) {
+      out.push({ id, x: sprite.position.x, y: sprite.position.y });
+    }
+    return out;
+  }
+
   private updateEntities(dt: number): void {
     const seenHumans = new Set<number>();
     const seenPredators = new Set<number>();
 
+    // How far through the current snapshot interval this frame sits. Snapshots
+    // arrive at 20 Hz and we draw at 60 fps, so two frames out of three are drawn
+    // between two known states rather than on one. Without this every entity moves
+    // in three visible jumps per snapshot.
+    const alpha = snapshotAlpha(performance.now() - this.snapshotAt, this.snapshotIntervalMs);
+    const intervalSeconds = this.snapshotIntervalMs > 0 ? this.snapshotIntervalMs / 1000 : 0;
+
     for (const entity of this.lastEntities) {
       if (entity.kind === EntityKind.Plant) continue;
 
-      // Locomotion speed is derived from frame-to-frame displacement rather than
-      // shipped in the snapshot: the snapshot float stride is fully allocated,
-      // and the renderer already has the previous position for free.
-      const previous = this.lastPositions.get(entity.id);
+      const previousSample = this.previousById.get(entity.id);
+      const pose = interpolatePose(previousSample, entity, alpha);
+
+      // Locomotion speed is derived from the displacement *between snapshots*
+      // rather than frame to frame: the snapshot float stride is fully allocated,
+      // and a per-snapshot delta divided by the snapshot interval is the entity's
+      // true speed. Measuring the rendered frames instead would report the
+      // interpolation rate, not the walk.
       let speed = 0;
-      if (previous && dt > 0) {
-        speed = Math.hypot(entity.x - previous.x, entity.y - previous.y) / dt;
+      if (previousSample && intervalSeconds > 0) {
+        speed = Math.hypot(entity.x - previousSample.x, entity.y - previousSample.y) / intervalSeconds;
       }
-      this.lastPositions.set(entity.id, { x: entity.x, y: entity.y });
 
       if (entity.kind === EntityKind.Human) {
         seenHumans.add(entity.id);
         const sprite = this.obtainSprite(false, entity.id);
-        sprite.position.set(entity.x, entity.y);
+        sprite.position.set(pose.x, pose.y);
         // Sprites are authored facing "up"; the world's heading 0 points along +x.
-        sprite.rotation = entity.heading + Math.PI / 2;
+        sprite.rotation = pose.heading + Math.PI / 2;
         sprite.update(
           dt,
           entity.action,
@@ -502,8 +550,8 @@ export class WorldRenderer {
       } else {
         seenPredators.add(entity.id);
         const sprite = this.obtainSprite(true, entity.id);
-        sprite.position.set(entity.x, entity.y);
-        sprite.rotation = entity.heading + Math.PI / 2;
+        sprite.position.set(pose.x, pose.y);
+        sprite.rotation = pose.heading + Math.PI / 2;
         sprite.update(
           dt,
           entity.action,
