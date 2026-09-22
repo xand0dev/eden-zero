@@ -376,8 +376,15 @@ export class WorldRenderer {
   }
 
   private updateOverlay(): void {
-    const width = this.app.renderer.width / this.app.renderer.resolution;
-    const height = this.app.renderer.height / this.app.renderer.resolution;
+    // `app.screen` is the logical (CSS) size, which is what a screen-space overlay
+    // needs. Do NOT use `renderer.width / renderer.resolution`: in Pixi v8
+    // `renderer.width` is already the logical width, so dividing by the resolution
+    // halves it on any Retina display. That bug drew the night overlay over the
+    // left half of the viewport only, with a hard vertical seam down the middle —
+    // and it was invisible on a resolution-1 display, which is why it survived
+    // every check I had.
+    const width = this.app.screen.width;
+    const height = this.app.screen.height;
     const darkness = 1 - this.currentLight;
 
     this.nightOverlay.clear();
@@ -491,6 +498,24 @@ export class WorldRenderer {
    * moving. This accessor exists so a script can prove the rendered position
    * changes on frames where no snapshot arrived.
    */
+  /** Renderer sizing, for diagnosing screen-space overlay bugs. */
+  debugRendererInfo(): Record<string, number> {
+    const canvas = this.app.canvas as HTMLCanvasElement;
+    return {
+      rendererWidth: this.app.renderer.width,
+      rendererHeight: this.app.renderer.height,
+      resolution: this.app.renderer.resolution,
+      screenWidth: this.app.screen.width,
+      screenHeight: this.app.screen.height,
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      cssWidth: canvas.clientWidth,
+      cssHeight: canvas.clientHeight,
+      overlayWidth: this.nightOverlay.getLocalBounds().width,
+      overlayHeight: this.nightOverlay.getLocalBounds().height,
+    };
+  }
+
   debugEntityPositions(): Array<{ id: number; x: number; y: number }> {
     const out: Array<{ id: number; x: number; y: number }> = [];
     for (const [id, sprite] of this.humanSprites) {
