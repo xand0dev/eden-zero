@@ -1,10 +1,16 @@
 import { Rng } from '../rng';
 import { Brain, clamp } from '../brain/network';
-import { M, MOTOR_NAMES, MOTOR_START, S, SENSORY_NAMES, regionOf } from '../brain/channels';
+import { M, MOTOR_COUNT, MOTOR_NAMES, MOTOR_START, S, SENSORY_COUNT, SENSORY_NAMES, regionOf } from '../brain/channels';
 import { SocialMemory } from '../memory/social';
 import { cloneGenome, type Genome } from '../genetics/genome';
 import type { InheritanceReport } from '../genetics/evolution';
 import type { SimWorld } from './context';
+import {
+  BUILD_CHUNK,
+  BUILD_INTERVAL_TICKS,
+  CARRY_CAPACITY,
+  HARVEST_INTERVAL_TICKS,
+} from './structure';
 import { EntityKind, LifeStage, Sex, type EventKind } from '../../shared/types';
 import {
   AGE_ADULT_END,
@@ -55,6 +61,13 @@ const ENERGY_PER_FOOD = 88;
 /** Contact distance for touching / eating / mating interactions. */
 const REACH = 1.35;
 const TOUCH_RANGE = 0.95;
+/**
+ * How far from the village centre a new hut may be founded.
+ *
+ * Without this the inhabitants scatter single huts across the whole island,
+ * which looks like litter rather than a settlement.
+ */
+const VILLAGE_RADIUS = 26;
 
 /** Duration of a mating event, in simulated seconds. */
 export const MATING_DURATION = 7;
@@ -139,6 +152,20 @@ export class Human {
   bodyTemperature = 6;
   comfort = 1;
 
+  // construction -------------------------------------------------------
+  /** Timber currently carried, 0..CARRY_CAPACITY. */
+  wood = 0;
+  /** Tick of the last felled unit of timber. */
+  private lastHarvestTick = -1000;
+  /** Tick of the last load of timber laid on a site. */
+  private lastBuildTick = -1000;
+  /** Set by `act` so the renderer can show a chopping or building pose. */
+  harvesting = false;
+  building = false;
+  /** Where this human was born; used for the "am I home" sense. */
+  homeX = 0;
+  homeY = 0;
+
   fertility01 = 0;
   libido = 0;
 
@@ -149,8 +176,8 @@ export class Human {
   recovery = 0;
 
   // brain I/O ----------------------------------------------------------
-  readonly sensors = new Float32Array(32);
-  readonly motor = new Float32Array(12);
+  readonly sensors = new Float32Array(SENSORY_COUNT);
+  readonly motor = new Float32Array(MOTOR_COUNT);
   /** Valence used by the last plasticity update, for the inspector. */
   lastValence = 0;
   /** Homeostasis snapshot from the previous tick, for valence derivation. */
@@ -184,7 +211,13 @@ export class Human {
   /** Water direction, ordered [front, right, back, left]. */
   private readonly waterDir = new Float32Array(4);
   /** Scratch accumulators for food / conspecific / threat, each [front, right, back, left]. */
-  private readonly directionScratch = [new Float32Array(4), new Float32Array(4), new Float32Array(4)];
+  private readonly directionScratch = [
+    new Float32Array(4),
+    new Float32Array(4),
+    new Float32Array(4),
+    new Float32Array(4),
+    new Float32Array(4),
+  ];
   private attackTargetId: number | null = null;
 
   // genealogy ----------------------------------------------------------
@@ -341,9 +374,13 @@ export class Human {
     const food = this.directionScratch[0];
     const conspecific = this.directionScratch[1];
     const threat = this.directionScratch[2];
+    const woodDir = this.directionScratch[3];
+    const buildDir = this.directionScratch[4];
     food.fill(0);
     conspecific.fill(0);
     threat.fill(0);
+    woodDir.fill(0);
+    buildDir.fill(0);
     let touch = 0;
 
     // Two different ranges for two different senses.
@@ -356,6 +393,13 @@ export class Human {
     // crawled. This is also the more biologically sensible arrangement — you see
     // the berry bush in front of you and smell the river from across the valley.
     const foodRange = vision * 1.5;
+    /**
+     * Build-site sensing range.
+     *
+     * A human has to be able to find the village from the tree line, otherwise it
+     * fells timber and then wanders off with it forever.
+     */
+    const buildRange = vision * 2.4;
     /**
      * Water sensing range.
      *
@@ -380,20 +424,36 @@ export class Human {
     let bestFoodDy = 0;
     let bestFoodDist = Infinity;
     let bestFoodValue = 0;
+    let bestWoodDx = 0;
+    let bestWoodDy = 0;
+    let bestWoodDist = Infinity;
+    let bestWoodTimber = 0;
+    // One pass over the nearby plants feeds both the food and the timber senses.
+    //
+    // These were separate queries at first, which doubled the most expensive loop
+    // in the simulation — every human scanning every nearby plant, twice, every
+    // tick. Merging them costs one extra branch per plant and saves half the work.
     const plantCount = world.queryPlants(this.x, this.y, foodRange, this.scratch);
     for (let i = 0; i < plantCount; i++) {
       const plant = world.plants[this.scratch[i]];
-      if (!plant || plant.food < 0.14) continue;
+      if (!plant) continue;
       const dx = plant.x - this.x;
       const dy = plant.y - this.y;
       const dist = Math.hypot(dx, dy);
       if (dist > foodRange) continue;
       if (dist < TOUCH_RANGE) touch = 1;
-      if (dist < bestFoodDist) {
+
+      if (plant.food >= 0.14 && dist < bestFoodDist) {
         bestFoodDist = dist;
         bestFoodDx = dx;
         bestFoodDy = dy;
         bestFoodValue = plant.food;
+      }
+      if (plant.timber > 0.05 && dist < bestWoodDist) {
+        bestWoodDist = dist;
+        bestWoodDx = dx;
+        bestWoodDy = dy;
+        bestWoodTimber = plant.timber;
       }
     }
     if (bestFoodDist < Infinity) {
@@ -407,8 +467,12 @@ export class Human {
       const weight = (1 - bestFoodDist / foodRange) * bestFoodValue * reachFactor;
       encodeDirection(bestFoodDx, bestFoodDy, this.heading, weight, food);
     }
+    if (bestWoodDist < Infinity) {
+      const reach = bestWoodDist > REACH ? 1 : 0.15;
+      const weight = (1 - bestWoodDist / foodRange) * reach * Math.min(1, bestWoodTimber / 1.5);
+      encodeDirection(bestWoodDx, bestWoodDy, this.heading, weight, woodDir);
+    }
 
-    // --- conspecifics -----------------------------------------------------
     // --- conspecifics -----------------------------------------------------
     //
     // Range is plain visual range. An earlier version extended it by libido (up
@@ -476,6 +540,39 @@ export class Human {
       const weight = (1 - nearestThreatDist / vision) * nearestThreatScale;
       encodeDirection(nearestThreatDx, nearestThreatDy, this.heading, weight, threat);
     }
+
+    // --- building sites ---------------------------------------------------
+    //
+    // A human only cares about sites that still want timber.
+    let nearestSiteDx = 0;
+    let nearestSiteDy = 0;
+    let nearestSiteDist = Infinity;
+    let siteNeed = 0;
+    const siteScan = world.queryStructures(this.x, this.y, buildRange, this.scratch);
+    for (let i = 0; i < siteScan; i++) {
+      const site = world.structures[this.scratch[i]];
+      if (!site || site.complete) continue;
+      const dx = site.x - this.x;
+      const dy = site.y - this.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > buildRange) continue;
+      if (dist < nearestSiteDist) {
+        nearestSiteDist = dist;
+        nearestSiteDx = dx;
+        nearestSiteDy = dy;
+        siteNeed = site.need;
+      }
+    }
+    if (nearestSiteDist < Infinity) {
+      const reach = nearestSiteDist > REACH ? 1 : 0.15;
+      const weight = (1 - nearestSiteDist / buildRange) * reach;
+      encodeDirection(nearestSiteDx, nearestSiteDy, this.heading, weight, buildDir);
+    }
+
+    s[S.woodCarried] = clamp01(this.wood / CARRY_CAPACITY);
+    s[S.buildNeed] = clamp01(siteNeed);
+    s[S.shelter] = clamp01(this.shelterFactor(world));
+    s[S.dayPhase] = clamp01(world.climate.dayPhase);
 
     // --- water ------------------------------------------------------------
     this.scanWater(world, waterRange);
@@ -745,6 +842,13 @@ export class Human {
     // heritable trait, but it should not be the leading cause of death.
     if (m[M.attack] * this.genome.aggressionGain > 1.0) this.tryAttack(world);
 
+    // Construction. Proximity-gated like eating rather than competing with
+    // locomotion: carrying a log does not stop you walking.
+    this.harvesting = false;
+    this.building = false;
+    if (m[M.harvest] > 0.3) this.tryHarvest(world);
+    if (m[M.build] > 0.3) this.tryBuild(world);
+
     // Survival-critical homeostatic override.
     //
     // When a need becomes life-threatening, the consummatory reflex fires
@@ -789,6 +893,105 @@ export class Human {
     this.x = clamp(this.x, 0.5, world.terrain.width - 0.5);
     this.y = clamp(this.y, 0.5, world.terrain.height - 0.5);
     return moved;
+  }
+
+  /**
+   * Fell timber from the nearest tree.
+   *
+   * Costs energy and builds fatigue, so chopping is work rather than a free
+   * action. The human stops when it is carrying a full load, which is what sends
+   * it back to the village.
+   */
+  private tryHarvest(world: SimWorld): void {
+    if (this.wood >= CARRY_CAPACITY) return;
+    if (world.tick - this.lastHarvestTick < HARVEST_INTERVAL_TICKS) return;
+    if (this.stage === LifeStage.Baby) return;
+
+    const count = world.queryPlants(this.x, this.y, REACH + 0.6, this.scratch);
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    for (let i = 0; i < count; i++) {
+      const index = this.scratch[i];
+      const plant = world.plants[index];
+      if (!plant || plant.timber <= 0.05) continue;
+      const distance = Math.hypot(plant.x - this.x, plant.y - this.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+    if (bestIndex < 0) return;
+
+    const wanted = Math.min(1.4, CARRY_CAPACITY - this.wood);
+    const taken = world.harvestWood(bestIndex, wanted);
+    if (taken <= 0) return;
+
+    this.wood = Math.min(CARRY_CAPACITY, this.wood + taken);
+    this.lastHarvestTick = world.tick;
+    this.harvesting = true;
+    this.energy = clamp(this.energy - taken * 1.6, 0, 100);
+    this.fatigue = clamp(this.fatigue + taken * 2.2, 0, 100);
+    this.stress = clamp(this.stress + taken * 0.6, 0, 100);
+  }
+
+  /**
+   * Lay carried timber on the nearest incomplete building site.
+   *
+   * A human with a full load and no site in range will found one where it
+   * stands, provided it is standing in the village. That is the only "rule"
+   * about construction in the whole simulation — who builds, when, and how much
+   * is entirely up to each individual's network.
+   */
+  private tryBuild(world: SimWorld): void {
+    if (this.wood <= 0) return;
+    if (world.tick - this.lastBuildTick < BUILD_INTERVAL_TICKS) return;
+
+    const count = world.queryStructures(this.x, this.y, REACH + 1.2, this.scratch);
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    for (let i = 0; i < count; i++) {
+      const index = this.scratch[i];
+      const site = world.structures[index];
+      if (!site || site.complete) continue;
+      const distance = Math.hypot(site.x - this.x, site.y - this.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+
+    if (bestIndex < 0) {
+      // No site within reach — found one, but only inside the village.
+      const centre = world.settlementCentre;
+      if (!centre) return;
+      const distanceHome = Math.hypot(this.x - centre.x, this.y - centre.y);
+      if (distanceHome > VILLAGE_RADIUS) return;
+      const founded = world.foundStructure(this.x, this.y, this);
+      if (!founded) return;
+      return;
+    }
+
+    const laid = world.contributeWood(bestIndex, Math.min(BUILD_CHUNK, this.wood), this);
+    if (laid <= 0) return;
+    this.wood -= laid;
+    this.lastBuildTick = world.tick;
+    this.building = true;
+    this.energy = clamp(this.energy - laid * 1.1, 0, 100);
+    this.fatigue = clamp(this.fatigue + laid * 1.4, 0, 100);
+  }
+
+  /** How sheltered this human currently is: 1 beside a finished hut, else less. */
+  private shelterFactor(world: SimWorld): number {
+    const count = world.queryStructures(this.x, this.y, 5, this.scratch);
+    let best = 0;
+    for (let i = 0; i < count; i++) {
+      const site = world.structures[this.scratch[i]];
+      if (!site || !site.complete) continue;
+      const distance = Math.hypot(site.x - this.x, site.y - this.y);
+      const factor = clamp01(1 - distance / 5);
+      if (factor > best) best = factor;
+    }
+    return best;
   }
 
   private tryEat(world: SimWorld, forced = false): void {
@@ -1089,6 +1292,9 @@ export class Human {
       mating: this.mating,
       matingCooldown: this.matingCooldown,
       recovery: this.recovery,
+      wood: this.wood,
+      homeX: this.homeX,
+      homeY: this.homeY,
       prevEnergy: this.prevEnergy,
       prevThirst: this.prevThirst,
       prevPain: this.prevPain,
@@ -1153,6 +1359,9 @@ export class Human {
     human.mating = (data.mating as MatingState | null) ?? null;
     human.matingCooldown = data.matingCooldown as number;
     human.recovery = data.recovery as number;
+    human.wood = (data.wood as number) ?? 0;
+    human.homeX = (data.homeX as number) ?? human.x;
+    human.homeY = (data.homeY as number) ?? human.y;
     human.prevEnergy = data.prevEnergy as number;
     human.prevThirst = data.prevThirst as number;
     human.prevPain = data.prevPain as number;

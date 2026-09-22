@@ -123,12 +123,28 @@ if (errors.length > 0) {
   for (const error of errors.slice(0, 10)) console.log(`    ${error}`);
 }
 
-// --- 3. Let the simulation run at x20 -------------------------------------
-await step('speed x20', async () => {
-  await page.locator('.speed-group button', { hasText: '20' }).first().click();
+// --- 3. Let the simulation run at x100 so the village gets built ----------
+await step('speed x100', async () => {
+  await page.locator('.speed-group button', { hasText: '100' }).first().click();
 });
-await page.waitForTimeout(6000);
-await shot('04-world-x20');
+// Long enough for timber to be felled and huts raised. Construction is a slow
+// process by design — a hut takes 42 units of timber at 1.4 per chop — so this
+// is the one place the harness deliberately runs the world hard.
+for (let i = 0; i < 12; i++) {
+  await page.waitForTimeout(5000);
+  const huts = await page.locator('.stat-strip').textContent().catch(() => '');
+  if (i === 5) await shot('04-world-x100');
+  if (/huts\s*[1-9]/.test(huts ?? '')) break;
+}
+await shot('04-world-built');
+
+const buildStats = await page.locator('.stat-strip').textContent().catch(() => '');
+console.log(`  stats after building: ${buildStats?.replace(/\s+/g, ' ').trim()}`);
+const structures = await page.evaluate(() => {
+  const client = window.__eden;
+  return client ? client.getSnapshot().structures.length : -1;
+});
+console.log(`  structures in the world: ${structures}`);
 
 // --- 4. Select a human ------------------------------------------------------
 // Prefer the dev-only handle so the run is deterministic; fall back to clicking.

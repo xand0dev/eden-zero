@@ -36,7 +36,7 @@ valid for the whole tick.
 
 ---
 
-## 2. Sensory channels (32)
+## 2. Sensory channels (44)
 
 | Index | Channel | Notes |
 |---|---|---|
@@ -90,7 +90,7 @@ the river it is dying of thirst beside.
 
 ---
 
-## 3. Motor outputs (12)
+## 3. Motor outputs (14)
 
 `move-forward`, `move-backward`, `turn-left`, `turn-right`, `sprint`, `eat`,
 `drink`, `rest`, `attack`, `signal`, `mate`, `interact`.
@@ -382,7 +382,73 @@ for predators would reuse the human mating machinery.
 
 ---
 
-## 11. Ecology balance
+## 11. Construction
+
+The only way the inhabitants change the world permanently. Everything else they do
+is transient — they eat a berry and it is gone, they mate and the act ends — but a
+hut persists, and later generations are born beside it.
+
+### The rule set is deliberately tiny
+
+There is exactly one structural rule in the whole feature: **a new hut site must
+be staked out inside the village** (within 26 tiles of the settlement centre, and
+at least 5.5 tiles from any existing site). That is what keeps the result looking
+like a village instead of litter.
+
+Everything else is left to the network:
+
+- *whether* to chop — driven by the `wood.*` channels and suppressed by hunger,
+  thirst, fatigue and pain, so a starving human forages rather than builds
+- *when* to carry the load home — driven by `woodCarried` biasing the `build`
+  motor and suppressing `harvest`
+- *how much* to invest — some individuals never build at all, and that is a
+  legitimate phenotype
+
+### Resources
+
+Trees carry **standing timber**, a separate resource from their edible foliage.
+Felling is a lasting change: timber regrows at 0.0025/s against a foliage regen of
+0.007/s, so a logged area stays logged for a very long time.
+
+| | |
+|---|---|
+| Timber per tree | 3.2 units at full growth |
+| Carry capacity | 12 units |
+| Timber per hut | 42 units |
+| Timber per chop | 1.4 units, one chop every 24 ticks (1.2 s) |
+| Timber laid per build action | 3 units, every 20 ticks (1 s) |
+
+So a single hut is roughly thirty chops plus fourteen deliveries. It is a real
+investment of simulated time, which is what makes watching the village grow feel
+like something.
+
+### New channels
+
+Two motor outputs were added (`harvest`, `build`), bringing the total to fourteen,
+along with twelve sensory channels (`wood.*`, `build.*`, `woodCarried`,
+`buildNeed`, `shelter`, `dayPhase`). The sensory bank therefore grew from 32 to 44
+and the neuron count from 256 to 270.
+
+This had a consequence worth recording: `Predator` and several tests had
+hardcoded `new Float32Array(32)`. A short sensory array leaves the new channels
+reading `undefined`, which turns the entire network to NaN — the predator's
+position went NaN and the spatial grid crashed two hundred ticks later with a
+completely unrelated error message. Every one of those arrays is now sized from
+`SENSORY_COUNT` / `MOTOR_COUNT`.
+
+### Sheltering
+
+A completed hut contributes to the `shelter` sense, which biases toward `rest`.
+Combined with the `dayPhase → rest` prior this gives a readable daily rhythm:
+humans work through the day, then settle near the huts at night.
+
+### Visual states
+
+A site renders in three stages so the observer can watch it rise: corner posts,
+then partial walls, then walls plus a roof, door and hearth glow. A progress arc
+runs while it is under way, and a brief pulse fires whenever timber is laid.
+
+## 12. Ecology balance
 
 Getting the population dynamics right was the single hardest part of the project,
 and the fix was almost entirely a matter of *measuring the right thing*.

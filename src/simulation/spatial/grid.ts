@@ -26,6 +26,16 @@ export class SpatialGrid {
   }
 
   insert(index: number, x: number, y: number): void {
+    // Guard against non-finite coordinates.
+    //
+    // A single NaN position used to index `buckets[NaN]`, which is `undefined`,
+    // and the resulting `Cannot read properties of undefined` crashed the whole
+    // simulation with no hint as to which entity was at fault. Failing loudly
+    // with the coordinates attached turns a mystery into a one-line diagnosis,
+    // and skipping the insert keeps the rest of the world running.
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error(`SpatialGrid.insert: non-finite position (${x}, ${y}) for index ${index}`);
+    }
     const cx = this.clampCol(Math.floor(x / this.cell));
     const cy = this.clampRow(Math.floor(y / this.cell));
     this.buckets[cy * this.cols + cx].push(index);

@@ -171,6 +171,18 @@ function main(): void {
   );
   console.log(`  mean offspring per female: ${(stats.births / Math.max(1, args.humans / 2)).toFixed(2)}`);
 
+  console.log('\nconstruction:');
+  console.log(`  huts finished        : ${stats.huts}`);
+  console.log(`  sites under way      : ${stats.sites}`);
+  console.log(`  standing timber      : ${stats.timber.toFixed(0)}`);
+  console.log(
+    `  timber carried       : ${world.humans.reduce((sum, h) => sum + h.wood, 0).toFixed(0)} units ` +
+      `across ${world.humans.filter((h) => h.wood > 0).length} humans`,
+  );
+  const buildEvents = world.events.filter((e) => e.kind === 'build');
+  console.log(`  build events (window): ${buildEvents.length}`);
+  for (const event of buildEvents.slice(-4)) console.log(`      [t=${event.tick}] ${event.text}`);
+
   console.log('\nmotor output distribution (all humans, all ticks):');
   const sorted = [...actionCounts.entries()].sort((a, b) => b[1] - a[1]);
   const total = sorted.reduce((sum, [, count]) => sum + count, 0) || 1;

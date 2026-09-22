@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      # Boots the real server, connects a real WebSocket client and checks the
+      # handshake, the snapshot stream and a god-command round trip.
+      - name: Server smoke test
+        run: npm run smoke:server
+
+      - name: Acceptance scenario
+        run: npm run accept
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t eden-zero:ci .
+      - name: Start container
+        run: docker run -d --name eden -p 8080:8080 eden-zero:ci
+      - name: Wait for the world to come up
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8080/ > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          echo "server did not become ready" >&2
+          docker logs eden >&2
+          exit 1
+      - name: Serve the client
+        run: curl -sf http://127.0.0.1:8080/ | grep -q 'EDEN'
+      - name: Container logs
+        if: always()
+        run: docker logs eden

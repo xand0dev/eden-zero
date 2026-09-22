@@ -41,8 +41,17 @@ export interface Explanation {
   strength: number;
   /** Top contributors into the winning motor neuron. */
   contributors: ContributionNode[];
-  /** Strongest single chain from a sensory/input neuron to the motor output. */
+  /**
+   * Strongest chain from the winning motor output back to an input, *including*
+   * the motor neuron itself. Always at least two nodes.
+   */
   path: ContributionNode[];
+  /**
+   * Strongest chain that passes through the recurrent core, if one carries
+   * meaningful signal. This is the learned component of the decision, and it is
+   * often invisible in `path` because the innate priors dominate the read-out.
+   */
+  learnedPath: ContributionNode[];
   /** Human-readable summary lines, already formatted for the panel. */
   summary: string[];
   note: string;
@@ -51,6 +60,8 @@ export interface Explanation {
 const MAX_BRANCH = 5;
 const MAX_DEPTH = 3;
 const CHILD_BRANCH = 3;
+/** Below this, a contribution is noise and not worth descending into. */
+const MIN_CONTRIBUTION = 1e-4;
 
 interface Scored {
   neuron: number;
@@ -84,17 +95,38 @@ export function explainAction(
     .slice()
     .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
 
-  // Strongest chain: always descend into the child with the largest magnitude.
-  const path: ContributionNode[] = [];
-  let cursor: ContributionNode | undefined = contributors[0];
-  while (cursor) {
-    path.push(cursor);
-    let best: ContributionNode | undefined;
-    for (const child of cursor.children) {
-      if (!best || Math.abs(child.contribution) > Math.abs(best.contribution)) best = child;
-    }
-    cursor = best;
-  }
+  // The chain must start at the motor output, not at its strongest input.
+  //
+  // An earlier version built the path from the top contributor downwards, which
+  // meant that whenever an innate prior dominated — which is most of the time —
+  // the chain terminated immediately at that sensory neuron, because sensory
+  // neurons have no parents. The panel showed a single node and looked broken.
+  // Anchoring at the motor neuron makes the chain read `motor:mate <- libido`,
+  // which is what it actually is.
+  const root: ContributionNode = {
+    neuron: target,
+    label: labelNeuron(target),
+    short: shortLabel(target),
+    region: regionOf(target),
+    contribution: 0,
+    activation: brain.rate[target],
+    weight: 0,
+    depth: 0,
+    children: contributors,
+  };
+
+  const path = descend(root);
+
+  // The learned pathway: the strongest chain that passes through the recurrent
+  // core. The innate priors usually dominate the read-out, so the learned
+  // component is frequently absent from `path` altogether and the observer would
+  // never see that the animal has, in fact, learned anything.
+  const learnedRoot = contributors.find(
+    (node) =>
+      (node.region === Region.Recurrent || node.region === Region.Local || node.region === Region.Modulatory) &&
+      Math.abs(node.contribution) > MIN_CONTRIBUTION,
+  );
+  const learnedPath = learnedRoot ? descend(learnedRoot) : [];
 
   const strength = Math.max(0, Math.min(1, brain.rate[target] * 3.6));
 
@@ -105,12 +137,37 @@ export function explainAction(
     strength,
     contributors,
     path,
+    learnedPath,
     summary: summarise(contributors, sensory),
     note:
       'Approximate activation/contribution trace over a recurrent network. ' +
       'Contributions are weight x presynaptic activity for the last tick, ' +
       'recovered to a bounded depth. Not a causal proof.',
   };
+}
+
+/**
+ * Walk from a node down through its strongest child until the chain runs out.
+ *
+ * The `children` arrays are already truncated to the strongest few by
+ * `buildNode`, so the chain always follows the dominant branch rather than
+ * wandering into noise.
+ */
+function descend(start: ContributionNode): ContributionNode[] {
+  const chain: ContributionNode[] = [start];
+  let cursor = start;
+  // MAX_DEPTH bounds the recursion in buildNode; this bounds the walk.
+  for (let guard = 0; guard < MAX_DEPTH + 2; guard++) {
+    let best: ContributionNode | undefined;
+    for (const child of cursor.children) {
+      if (Math.abs(child.contribution) <= MIN_CONTRIBUTION) continue;
+      if (!best || Math.abs(child.contribution) > Math.abs(best.contribution)) best = child;
+    }
+    if (!best) break;
+    chain.push(best);
+    cursor = best;
+  }
+  return chain;
 }
 
 function incoming(brain: Brain, neuron: number, limit: number): Scored[] {

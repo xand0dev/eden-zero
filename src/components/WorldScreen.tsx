@@ -78,6 +78,10 @@ export function WorldScreen({
   }, [state.effects]);
 
   useEffect(() => {
+    rendererRef.current?.setStructures(state.structures, state.tick);
+  }, [state.structures, state.tick]);
+
+  useEffect(() => {
     rendererRef.current?.setLight(state.light);
   }, [state.light]);
 
@@ -253,6 +257,10 @@ export function WorldScreen({
             </span>
             <span>
               plants <b>{stats?.plants ?? 0}</b>
+            </span>
+            <span title="Huts finished / building sites still wanting timber">
+              huts <b>{stats?.huts ?? 0}</b>
+              {(stats?.sites ?? 0) > 0 && <em> +{stats?.sites} sites</em>}
             </span>
           </div>
           <div className="spacer" />

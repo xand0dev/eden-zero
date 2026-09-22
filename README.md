@@ -142,6 +142,74 @@ shows that report alongside each gene.
 
 ---
 
+## Building
+
+Humans fell trees, carry the timber back to the village, and raise huts. Nothing
+about the labour is scripted: no rule says "human 3 builds hut 2". The network
+decides tick by tick whether to chop, carry, or lay timber, driven by the same
+`wood.*` and `build.*` sensory channels as every other behaviour — and suppressed
+by hunger, thirst, fatigue and pain, so a starving human forages instead of
+building.
+
+The only structural rule is that a new hut site must be staked out inside the
+village (within 26 tiles of the settlement centre) and at least 5.5 tiles from any
+other site, which is what keeps the result looking like a village rather than
+litter.
+
+- Trees carry **standing timber** which is a separate resource from their edible
+  foliage. Felling is a lasting change: timber regrows far more slowly than
+  leaves, so a logged area stays logged for a long time.
+- A human carries up to 12 units. A hut takes 42.
+- A site shows as four corner posts, then partial walls, then a roof, with a
+  progress arc while it is under way and a hearth glow once it is finished.
+- Completed huts give their occupants a **shelter** sense, which biases them to
+  rest nearby — especially at night.
+
+Two new motor outputs were added for this (`harvest`, `build`), bringing the total
+to fourteen, along with twelve new sensory channels. This is the one place in the
+simulation where the inhabitants change the world permanently: everything else
+they do is transient, but a hut persists, and later generations are born beside it.
+
+---
+
+## Two ways to run a world
+
+**Local (default).** The world lives in a Web Worker on your machine. `npm run dev`.
+
+**Shared.** The world lives on a server and every connected observer receives the
+same snapshots over a WebSocket. The simulation is the same TypeScript either way —
+`World` has no DOM or Node dependency, which is what makes this possible without
+forking anything.
+
+```bash
+npm run server                                  # authoritative world on :8080
+# then open http://127.0.0.1:8080/?server=auto
+```
+
+The WebSocket layer is **hand-written against RFC 6455** — upgrade handshake,
+masking, fragmentation, control frames, close semantics — with no `ws` dependency.
+Snapshots travel as a JSON header plus concatenated `Int32Array` / `Float32Array` /
+`Uint8Array` payloads in network byte order.
+
+This is observer mode, not client-authoritative multiplayer. An observer controls
+nothing that needs predicting, so there is no client-side prediction of simulation
+state — the client interpolates between the last two snapshots so motion is smooth
+at 60 fps while snapshots arrive at 20 Hz, and god commands get optimistic local
+feedback reconciled against the next authoritative snapshot. Saying otherwise would
+be overselling it.
+
+`npm run smoke:server` boots the real server and drives it over a real socket.
+
+---
+
+## Submission notes
+
+- **[docs/SUBMISSION.md](docs/SUBMISSION.md)** — which labs this answers, the JS
+  course gap analysis, the reflection, and the honest list of what is weak.
+- **[MANIFESTO.md](MANIFESTO.md)** — the Lab 42 capstone document.
+
+---
+
 ## God interaction
 
 You are an observer who may intervene. Tools: **spawn human**, **spawn predator**,
@@ -317,8 +385,10 @@ npm run desktop        # Tauri desktop app in development
 ### Test
 
 ```bash
-npm test        # 83 unit + integration tests
-npm run accept  # the 50-point acceptance scenario from the design brief
+npm test            # 109 unit + integration tests
+npm run accept      # the 50-point acceptance scenario from the design brief
+npm run smoke:server # boots the server and drives it over a real socket
+npm run balance     # ecology across a batch of seeds
 ```
 
 `npm run accept` walks the acceptance scenario end to end — genesis, autonomous

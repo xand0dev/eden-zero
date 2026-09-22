@@ -4,9 +4,31 @@ import { SimClient, type SimState } from '../worker/client';
 /** Single simulation client for the whole app. */
 export const sim = new SimClient();
 
-// Expose the client in development builds so the UI can be driven from a script
-// (see scripts/verify-ui.mjs) without adding a production back door.
-if (import.meta.env.DEV) {
+/**
+ * Shared-observation mode.
+ *
+ * If the page is opened with `?server=<url>` the client attaches to a
+ * server-hosted world instead of running its own in a Web Worker. Passing
+ * `?server=auto` derives the URL from the page origin, which is what the
+ * container image and the deployed build use — same origin, `/world` path.
+ *
+ * This is a URL flag rather than a UI toggle on purpose: it is a deployment
+ * decision, not something an observer should have to discover in a menu.
+ */
+const params = new URLSearchParams(window.location.search);
+const server = params.get('server');
+if (server) {
+  const url = server === 'auto' ? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/world` : server;
+  sim.connectRemote(url);
+}
+
+// Expose the client so the UI can be driven from a script
+// (see scripts/verify-ui.mjs and scripts/shared-check.mjs).
+//
+// In development this is always on. In a production build it requires an explicit
+// `?debug=1`, so a deployed world has no back door unless whoever deployed it asks
+// for one — and the URL makes that visible rather than hidden.
+if (import.meta.env.DEV || params.has('debug')) {
   (window as unknown as Record<string, unknown>).__eden = sim;
 }
 

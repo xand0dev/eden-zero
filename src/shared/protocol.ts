@@ -68,6 +68,7 @@ export type WorkerToMain =
       stats: WorldSnapshot['stats'];
       events: WorldSnapshot['events'];
       effects: WorldSnapshot['effects'];
+      structures: WorldSnapshot['structures'];
       metrics: WorldSnapshot['metrics'];
       paused: boolean;
       speed: number;

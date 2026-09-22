@@ -33,6 +33,8 @@ export const EntityFlags = {
   Attacking: 1 << 5,
   Feeding: 1 << 6,
   Selected: 1 << 7,
+  Harvesting: 1 << 8,
+  Building: 1 << 9,
 } as const;
 
 /** Per-entity stride of the snapshot float buffer. */
@@ -52,7 +54,8 @@ export type EventKind =
   | 'generation'
   | 'milestone'
   | 'god'
-  | 'ecology';
+  | 'ecology'
+  | 'build';
 
 export interface WorldEvent {
   id: number;
@@ -78,6 +81,12 @@ export interface WorldStats {
   oldestGeneration: number;
   predators: number;
   plants: number;
+  /** Huts finished. */
+  huts: number;
+  /** Building sites that still want timber. */
+  sites: number;
+  /** Standing timber remaining across the map, in units. */
+  timber: number;
   averageNeurons: number;
   averageSynapses: number;
   averageWeightDrift: number;
@@ -107,7 +116,7 @@ export interface DevMetrics {
 /** Short-lived visual effect produced by the simulation (lightning, birth, ...). */
 export interface WorldEffect {
   id: number;
-  kind: 'lightning' | 'birth' | 'death' | 'mating' | 'attack' | 'spawn';
+  kind: 'lightning' | 'birth' | 'death' | 'mating' | 'attack' | 'spawn' | 'build';
   x: number;
   y: number;
   /** Remaining lifetime in simulated seconds. */
@@ -133,6 +142,20 @@ export interface WorldSnapshot {
   events: WorldEvent[];
   effects: WorldEffect[];
   metrics: DevMetrics;
+  /** Huts, finished and under construction. Small enough to send whole. */
+  structures: StructureView[];
+}
+
+export interface StructureView {
+  id: number;
+  x: number;
+  y: number;
+  wood: number;
+  required: number;
+  complete: boolean;
+  lastBuildTick: number;
+  builderId: number;
+  builderName: string;
 }
 
 export interface SocialRecordView {
@@ -257,6 +280,8 @@ export interface ExplanationView {
   strength: number;
   summary: string[];
   path: Array<{ label: string; short: string; region: number; contribution: number; activation: number }>;
+  /** Strongest chain through the recurrent core, i.e. the learned component. */
+  learnedPath: Array<{ label: string; short: string; region: number; contribution: number; activation: number }>;
   note: string;
 }
 

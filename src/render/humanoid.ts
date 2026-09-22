@@ -12,20 +12,30 @@ import { Container, Graphics } from 'pixi.js';
  * world read as alive rather than as a field of coloured dots.
  */
 
+/**
+ * Action poses, keyed by *motor index*.
+ *
+ * These must match `M` in `simulation/brain/channels.ts` exactly. An earlier
+ * version of this table was offset by one (it had an `Idle` entry at 0 that no
+ * motor ever produces), which meant a resting human was drawn drinking and an
+ * eating human was drawn sprinting — a bug that is invisible in a screenshot and
+ * obvious the moment you compare the panel to the sprite.
+ */
 export const ACTION = {
-  Idle: 0,
-  MoveFwd: 1,
-  MoveBack: 2,
-  TurnLeft: 3,
-  TurnRight: 4,
-  Sprint: 5,
-  Eat: 6,
-  Drink: 7,
-  Rest: 8,
-  Attack: 9,
-  Signal: 10,
-  Mate: 11,
-  Interact: 12,
+  MoveFwd: 0,
+  MoveBack: 1,
+  TurnLeft: 2,
+  TurnRight: 3,
+  Sprint: 4,
+  Eat: 5,
+  Drink: 6,
+  Rest: 7,
+  Attack: 8,
+  Signal: 9,
+  Mate: 10,
+  Interact: 11,
+  Harvest: 12,
+  Build: 13,
 } as const;
 
 export interface HumanoidOptions {
@@ -154,6 +164,8 @@ export class HumanoidSprite extends Container {
     const pregnant = (flags & 8) !== 0;
     const attacking = (flags & 32) !== 0;
     const feeding = (flags & 64) !== 0;
+    const harvesting = (flags & 256) !== 0;
+    const building = (flags & 512) !== 0;
 
     // Smoothly approach the target scale so growth is visible rather than a pop.
     this.currentScale += (size - this.currentScale) * Math.min(1, dt * 3);
@@ -208,6 +220,23 @@ export class HumanoidSprite extends Container {
     } else if (action === ACTION.Interact) {
       armLeft = -0.9;
       armRight = -0.9;
+    } else if (harvesting || action === ACTION.Harvest) {
+      // Overhead axe swing: both arms up, then down, with a body twist.
+      const chop = Math.sin(this.phase * 1.1);
+      const raise = Math.max(0, chop);
+      armRight = -0.5 - raise * 1.9;
+      armLeft = -0.4 - raise * 1.6;
+      bodyRotation = raise * 0.22;
+      bodyBob = -raise * 0.02;
+    } else if (building || action === ACTION.Build) {
+      // Crouched, arms forward laying a log.
+      armLeft = -1.25;
+      armRight = -1.25;
+      bodyRotation = 0.12;
+      bodyLift = -0.03;
+      legLeft = 0.25;
+      legRight = -0.25;
+      bodyBob = Math.abs(Math.sin(this.phase * 1.3)) * 0.014;
     }
 
     this.body.rotation = bodyRotation;

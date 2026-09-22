@@ -21,7 +21,10 @@
     "tauri": "./node_modules/.bin/tauri",
     "desktop": "./node_modules/.bin/tauri dev",
     "desktop:build": "./node_modules/.bin/tauri build",
-    "app": "bash scripts/build-app.sh"
+    "app": "bash scripts/build-app.sh",
+    "server": "./node_modules/.bin/tsx server/index.ts",
+    "serve": "./node_modules/.bin/tsx server/index.ts --speed 4",
+    "smoke:server": "./node_modules/.bin/tsx scripts/server-smoke.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

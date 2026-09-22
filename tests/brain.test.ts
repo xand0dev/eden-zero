@@ -3,7 +3,7 @@ import { Rng } from '../src/simulation/rng';
 import { Brain, W_MAX } from '../src/simulation/brain/network';
 import { randomGenome } from '../src/simulation/genetics/genome';
 import { explainAction } from '../src/simulation/brain/trace';
-import { MOTOR_COUNT, MOTOR_NAMES, NEURON_COUNT } from '../src/simulation/brain/channels';
+import { MOTOR_COUNT, MOTOR_NAMES, NEURON_COUNT, SENSORY_COUNT } from '../src/simulation/brain/channels';
 import { DT } from '../src/shared/constants';
 
 function makeBrain(seed: string) {
@@ -13,8 +13,10 @@ function makeBrain(seed: string) {
 }
 
 function randomSensory(rng: Rng): Float32Array {
-  const sensory = new Float32Array(32);
-  for (let i = 0; i < 32; i++) sensory[i] = rng.next();
+  // Sized from the channel count, never hardcoded: a short array leaves the new
+  // channels reading `undefined`, which silently turns the whole network to NaN.
+  const sensory = new Float32Array(SENSORY_COUNT);
+  for (let i = 0; i < SENSORY_COUNT; i++) sensory[i] = rng.next();
   return sensory;
 }
 
@@ -22,11 +24,10 @@ describe('brain topology', () => {
   it('has the documented neuron count and a sparse synapse count', () => {
     const { brain } = makeBrain('topology');
     expect(brain.n).toBe(NEURON_COUNT);
-    expect(brain.n).toBe(256);
     expect(brain.synCount).toBeGreaterThan(1500);
     expect(brain.synCount).toBeLessThan(6000);
-    // Sparsity: a dense 256x256 network would have 65536 synapses.
-    expect(brain.synCount).toBeLessThan(256 * 256 * 0.1);
+    // Sparsity: a dense network would have NEURON_COUNT^2 synapses.
+    expect(brain.synCount).toBeLessThan(NEURON_COUNT * NEURON_COUNT * 0.1);
   });
 
   it('is deterministic for a given genome and seed', () => {
@@ -81,7 +82,7 @@ describe('brain dynamics', () => {
 
   it('produces non-trivial motor output from sensory input', () => {
     const { brain } = makeBrain('motor');
-    const sensory = new Float32Array(32);
+    const sensory = new Float32Array(SENSORY_COUNT);
     sensory[21] = 0.9; // hunger
     sensory[0] = 0.8; // food ahead
     sensory[20] = 0.7; // daylight
@@ -104,7 +105,7 @@ describe('brain dynamics', () => {
     // This is the nociceptive withdrawal reflex: pain must pull the animal back.
     const measure = (pain: number): number => {
       const { brain } = makeBrain('reflex');
-      const sensory = new Float32Array(32);
+      const sensory = new Float32Array(SENSORY_COUNT);
       sensory[17] = pain;
       const motor = new Float32Array(MOTOR_COUNT);
       let back = 0;
@@ -122,7 +123,7 @@ describe('brain dynamics', () => {
 
   it('reacts more strongly to food when hungry (salience is applied upstream)', () => {
     const { brain } = makeBrain('salience');
-    const sensory = new Float32Array(32);
+    const sensory = new Float32Array(SENSORY_COUNT);
     sensory[0] = 1;
     const motor = new Float32Array(MOTOR_COUNT);
     let sum = 0;
@@ -191,7 +192,7 @@ describe('plasticity', () => {
 describe('contribution trace ("Why did it do that?")', () => {
   it('returns contributors and a bounded path for a decision', () => {
     const { brain } = makeBrain('trace');
-    const sensory = new Float32Array(32);
+    const sensory = new Float32Array(SENSORY_COUNT);
     sensory[21] = 0.8;
     sensory[0] = 0.7;
     for (let t = 0; t < 200; t++) brain.step(sensory, 0);

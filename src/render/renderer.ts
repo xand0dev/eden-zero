@@ -3,9 +3,10 @@ import { TILE } from '../shared/constants';
 import { EntityKind } from '../shared/types';
 import type { EntityView } from '../worker/client';
 import { HumanoidSprite, hslToHex } from './humanoid';
+import { StructureSprite } from './structure';
 import { TILE_NAMES, type TerrainData } from '../simulation/environment/terrain';
 import { PLANT_SPECIES_NAMES, PlantSpecies, SPECIES_PROFILES } from '../simulation/entities/plant';
-import type { WorldEffect } from '../shared/types';
+import type { StructureView, WorldEffect } from '../shared/types';
 
 /**
  * PixiJS world renderer.
@@ -56,6 +57,12 @@ export class WorldRenderer {
   private readonly root = new Container();
   private readonly terrainLayer = new Container();
   private readonly plantLayer = new Container();
+  /**
+   * Structures sit between vegetation and the inhabitants, so a hut is drawn
+   * over the grass it stands on but a human walking past it is drawn on top.
+   */
+  private readonly structureLayer = new Container();
+  private readonly structures = new Map<number, StructureSprite>();
   private readonly entityLayer = new Container();
   private readonly effectLayer = new Container();
 
@@ -136,7 +143,7 @@ export class WorldRenderer {
     });
     this.resizeObserver.observe(container);
 
-    this.root.addChild(this.terrainLayer, this.plantLayer, this.entityLayer, this.effectLayer);
+    this.root.addChild(this.terrainLayer, this.plantLayer, this.structureLayer, this.entityLayer, this.effectLayer);
     // The selection ring lives in world space (inside `root`); the day/night
     // wash is a screen-space overlay and must NOT inherit the camera transform.
     this.root.addChild(this.selectionRing);
@@ -426,6 +433,37 @@ export class WorldRenderer {
     }
   }
 
+  /**
+   * Sync the hut layer.
+   *
+   * Called with the snapshot's structure list. Sprites are created on demand and
+   * kept, because a hut is a lasting object: rebuilding the layer every frame
+   * would both churn and lose the per-hut rotation.
+   */
+  setStructures(structures: StructureView[], tick: number): void {
+    const seen = new Set<number>();
+    for (const data of structures) {
+      seen.add(data.id);
+      let sprite = this.structures.get(data.id);
+      if (!sprite) {
+        sprite = new StructureSprite(data.id * 0.618);
+        sprite.position.set(data.x, data.y);
+        this.structureLayer.addChild(sprite);
+        this.structures.set(data.id, sprite);
+      }
+      // A short pulse right after timber is laid, so building is visible even
+      // when the observer is not watching a particular hut.
+      const sinceBuild = tick - data.lastBuildTick;
+      const pulse = sinceBuild >= 0 && sinceBuild < 30 ? 1 - sinceBuild / 30 : 0;
+      sprite.update(data.wood / data.required, data.complete, pulse);
+    }
+    for (const [id, sprite] of this.structures) {
+      if (seen.has(id)) continue;
+      sprite.destroy();
+      this.structures.delete(id);
+    }
+  }
+
   private updateEntities(dt: number): void {
     const seenHumans = new Set<number>();
     const seenPredators = new Set<number>();
@@ -647,6 +685,17 @@ function drawEffect(graphic: Graphics, effect: WorldEffect, progress: number): v
     }
     case 'attack': {
       graphic.circle(x, y, radius * 0.5).fill({ color: 0xff5a3c, alpha: (1 - progress) * 0.5 });
+      break;
+    }
+    case 'build': {
+      // A rising ring of timber-coloured dust.
+      const alpha = 1 - progress;
+      graphic.circle(x, y, radius * (0.25 + progress * 1.2)).stroke({
+        color: 0xc79a5c,
+        width: 0.22,
+        alpha,
+      });
+      graphic.circle(x, y, radius * 0.3).fill({ color: 0x8a6a3d, alpha: alpha * 0.35 });
       break;
     }
     default: {

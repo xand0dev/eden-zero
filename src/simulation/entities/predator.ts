@@ -1,6 +1,6 @@
 import { Rng } from '../rng';
 import { Brain, clamp } from '../brain/network';
-import { M, S } from '../brain/channels';
+import { M, MOTOR_COUNT, S, SENSORY_COUNT } from '../brain/channels';
 import type { Genome } from '../genetics/genome';
 import { mutate } from '../genetics/evolution';
 import type { SimWorld } from './context';
@@ -103,8 +103,17 @@ export class Predator {
   stress = 0;
   bodyTemperature = 6;
 
-  readonly sensors = new Float32Array(32);
-  readonly motor = new Float32Array(12);
+  /**
+   * Brain I/O.
+   *
+   * These must be sized from the channel counts, never hardcoded. A stale
+   * `new Float32Array(32)` here meant that after the sensory bank grew to 44 the
+   * brain read `undefined` for the new channels, produced NaN motor output, and
+   * the predator's position became NaN — which crashed the spatial grid two
+   * hundred ticks later with a completely unrelated error message.
+   */
+  readonly sensors = new Float32Array(SENSORY_COUNT);
+  readonly motor = new Float32Array(MOTOR_COUNT);
   lastValence = 0;
   private prevEnergy = 90;
   private prevPain = 0;

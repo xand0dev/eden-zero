@@ -5,7 +5,7 @@
  * regions. It is NOT the FlyWire connectome and does NOT attempt to reproduce
  * ~139k neurons — see README for the honesty statement.
  *
- *   sensory (32)
+ *   sensory (44)
  *        |
  *   local processing (64)
  *        |
@@ -13,19 +13,19 @@
  *        |
  *   internal-state / neuromodulatory (16)
  *        |
- *   motor (12)
+ *   motor (14)
  */
 
-export const SENSORY_COUNT = 32;
-export const LOCAL_START = 32;
+export const SENSORY_COUNT = 44;
+export const LOCAL_START = 44;
 export const LOCAL_COUNT = 64;
-export const RECURRENT_START = 96;
+export const RECURRENT_START = 108;
 export const RECURRENT_COUNT = 132;
-export const MOD_START = 228;
+export const MOD_START = 240;
 export const MOD_COUNT = 16;
-export const MOTOR_START = 244;
-export const MOTOR_COUNT = 12;
-export const NEURON_COUNT = 256;
+export const MOTOR_START = 256;
+export const MOTOR_COUNT = 14;
+export const NEURON_COUNT = 270;
 
 /**
  * Neuron regions. Declared as a frozen object rather than a `const enum`
@@ -89,6 +89,19 @@ export const SENSORY_NAMES = [
   'familiarity',
   'attachment',
   'noise',
+  // --- construction -------------------------------------------------------
+  'wood.front',
+  'wood.right',
+  'wood.back',
+  'wood.left',
+  'build.front',
+  'build.right',
+  'build.back',
+  'build.left',
+  'woodCarried',
+  'buildNeed',
+  'shelter',
+  'dayPhase',
 ] as const;
 
 /** Index of each named sensory channel. */
@@ -125,6 +138,18 @@ export const S = {
   familiarity: 29,
   attachment: 30,
   noise: 31,
+  woodFront: 32,
+  woodRight: 33,
+  woodBack: 34,
+  woodLeft: 35,
+  buildFront: 36,
+  buildRight: 37,
+  buildBack: 38,
+  buildLeft: 39,
+  woodCarried: 40,
+  buildNeed: 41,
+  shelter: 42,
+  dayPhase: 43,
 } as const;
 
 /** Motor outputs. Everything a human can *do* is one of these. */
@@ -141,6 +166,8 @@ export const MOTOR_NAMES = [
   'signal',
   'mate',
   'interact',
+  'harvest',
+  'build',
 ] as const;
 
 export const M = {
@@ -156,6 +183,8 @@ export const M = {
   signal: 9,
   mate: 10,
   interact: 11,
+  harvest: 12,
+  build: 13,
 } as const;
 
 export type MotorName = (typeof MOTOR_NAMES)[number];

@@ -1,11 +1,12 @@
 import { Rng } from './rng';
-import { DT, MAX_EVENTS, MAX_PLANTS, MAX_POPULATION, MAX_PREDATORS, SPATIAL_CELL, WORLD_H, WORLD_W } from '../shared/constants';
+import { DT, MAX_EVENTS, MAX_PLANTS, MAX_POPULATION, MAX_PREDATORS, MAX_STRUCTURES, SPATIAL_CELL, WORLD_H, WORLD_W } from '../shared/constants';
 import { SpatialGrid } from './spatial/grid';
 import { generateTerrain, nearestWalkable, computeWaterDistance, type TerrainData } from './environment/terrain';
 import { ambientTemperature, createClimate, updateClimate, type Climate } from './environment/climate';
 import { Human, MATING_DURATION, MATING_REFRACTORY } from './entities/human';
 import { Predator } from './entities/predator';
 import { Plant, PlantSpecies, SPECIES_PROFILES } from './entities/plant';
+import { Structure, WOOD_PER_HUT, type StructureData } from './entities/structure';
 import type { SimWorld } from './entities/context';
 import { cloneGenome, randomGenome, geneDef, sanitizeGenome, type GeneKey, type Genome } from './genetics/genome';
 import { reproduce } from './genetics/evolution';
@@ -114,7 +115,28 @@ export class World implements SimWorld {
   readonly nameRegistry = new NameRegistry();
   private nextEntityId = 1;
   /** Centre of the founding village, used to place predators in the surrounding wilderness. */
-  private settlementCentre: { x: number; y: number } | null = null;
+  settlementCentre: { x: number; y: number } | null = null;
+  /**
+   * Huts, finished and under construction.
+   *
+   * Capped so a long-running world cannot accumulate unbounded geometry; the cap
+   * is generous (see MAX_STRUCTURES) because a thriving village genuinely does
+   * keep building.
+   */
+  readonly structures: Structure[] = [];
+
+  /** Completed huts. Maintained incrementally so stats stay cheap. */
+  private huts = 0;
+
+  /** Standing timber left on the map. Felling is a lasting change. */
+  private get totalTimber(): number {
+    let sum = 0;
+    for (let i = 0; i < this.plants.length; i++) {
+      const plant = this.plants[i];
+      if (plant.alive && plant.timber > 0) sum += plant.timber;
+    }
+    return sum;
+  }
   private nextEventId = 1;
   private nextEffectId = 1;
 
@@ -124,6 +146,7 @@ export class World implements SimWorld {
   private humanGrid: SpatialGrid;
   private predatorGrid: SpatialGrid;
   private plantGrid: SpatialGrid;
+  private structureGrid: SpatialGrid;
 
   /** Lifetime counters that must survive entity death. */
   births = 0;
@@ -133,6 +156,7 @@ export class World implements SimWorld {
 
   private readonly scratchA: number[] = [];
   private readonly scratchB: number[] = [];
+  private readonly structureScratch: number[] = [];
 
   constructor(options: WorldOptions) {
     this.options = options;
@@ -145,10 +169,20 @@ export class World implements SimWorld {
     this.humanGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
     this.predatorGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
     this.plantGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
+    this.structureGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
 
     this.seedPlants(options.plantDensity);
     this.seedFounders(options.initialHumans);
     this.seedPredators(options.initialPredators);
+
+    // Populate the spatial grids immediately.
+    //
+    // `step()` rebuilds them at the top of every tick, so before this line a
+    // freshly constructed world had empty grids: any query — "what plants are
+    // near me" — returned nothing until the first tick had run. That is a
+    // surprising contract for callers and it silently broke the first harvest
+    // test, which is exactly the kind of thing a test should catch.
+    this.rebuildGrids();
 
     this.emitEvent('milestone', `Genesis — ${options.initialHumans} humans awaken in world "${options.seed}".`, []);
   }
@@ -346,6 +380,57 @@ export class World implements SimWorld {
     return ambientTemperature(this.terrain, this.climate, x, y);
   }
 
+  queryStructures(x: number, y: number, radius: number, out: number[]): number {
+    return this.structureGrid.queryCircle(x, y, radius, out);
+  }
+
+  harvestWood(plantIndex: number, amount: number): number {
+    const plant = this.plants[plantIndex];
+    if (!plant || !plant.alive) return 0;
+    return plant.takeTimber(amount);
+  }
+
+  contributeWood(structureIndex: number, amount: number, builder: Human): number {
+    const site = this.structures[structureIndex];
+    if (!site || site.complete) return 0;
+    const accepted = site.contribute(amount, this.tick, builder.id, builder.name);
+    if (accepted <= 0) return 0;
+
+    if (site.complete) {
+      this.huts += 1;
+      this.emitEvent(
+        'build',
+        `${builder.name} completed a hut at ${site.x.toFixed(0)}, ${site.y.toFixed(0)}.`,
+        [builder.id],
+      );
+      this.addEffect('build', site.x, site.y, 3.4, 2.4);
+    } else {
+      this.emitEvent(
+        'build',
+        `${builder.name} added timber to a hut (${Math.round(site.progress * 100)}%).`,
+        [builder.id],
+      );
+      this.addEffect('build', site.x, site.y, 2.2, 1.2);
+    }
+    return accepted;
+  }
+
+  foundStructure(x: number, y: number, builder: Human): Structure | null {
+    if (this.structures.length >= MAX_STRUCTURES) return null;
+    // Keep sites a sensible distance apart so the village reads as a village and
+    // not as one pile of huts.
+    const nearby = this.structureGrid.queryCircle(x, y, 5.5, this.structureScratch);
+    if (nearby > 0) return null;
+
+    const [sx, sy] = nearestWalkable(this.terrain, x, y);
+    const site = new Structure(this.nextEntityId++, sx, sy);
+    this.structures.push(site);
+    this.structureGrid.insert(this.structures.length - 1, sx, sy);
+    this.emitEvent('build', `${builder.name} staked out a new hut site.`, [builder.id]);
+    this.addEffect('build', sx, sy, 2.6, 1.6);
+    return site;
+  }
+
   consumePlant(plantIndex: number, amount: number): number {
     const plant = this.plants[plantIndex];
     if (!plant || !plant.alive) return 0;
@@ -419,6 +504,11 @@ export class World implements SimWorld {
     for (let i = 0; i < this.plants.length; i++) {
       const plant = this.plants[i];
       if (plant.alive) this.plantGrid.insert(i, plant.x, plant.y);
+    }
+    this.structureGrid.clear();
+    for (let i = 0; i < this.structures.length; i++) {
+      const site = this.structures[i];
+      this.structureGrid.insert(i, site.x, site.y);
     }
   }
 
@@ -991,6 +1081,9 @@ export class World implements SimWorld {
       oldestGeneration: this.maxGeneration,
       predators: this.predators.length,
       plants: this.plants.length,
+      huts: this.huts,
+      sites: this.structures.length - this.huts,
+      timber: this.totalTimber,
       averageNeurons: population > 0 ? neurons / population : 0,
       averageSynapses: population > 0 ? synapses / population : 0,
       averageWeightDrift: population > 0 ? drift / population : 0,
@@ -1198,6 +1291,13 @@ export class World implements SimWorld {
         contribution: node.contribution,
         activation: node.activation,
       })),
+      learnedPath: explanation.learnedPath.map((node) => ({
+        label: node.label,
+        short: node.short,
+        region: node.region,
+        contribution: node.contribution,
+        activation: node.activation,
+      })),
       note: explanation.note,
     };
   }
@@ -1315,6 +1415,8 @@ export class World implements SimWorld {
       if (human.pregnancy) flags |= EntityFlags.Pregnant;
       if (human.attacking) flags |= EntityFlags.Attacking;
       if (human.feeding) flags |= EntityFlags.Feeding;
+      if (human.harvesting) flags |= EntityFlags.Harvesting;
+      if (human.building) flags |= EntityFlags.Building;
       write(
         human.id,
         EntityKind.Human,
@@ -1400,6 +1502,9 @@ export class World implements SimWorld {
       events: this.events.slice(-120),
       effects: this.effects.map((e) => ({ ...e })),
       metrics: { ...metrics, entityCount: index, humanCount: count, predatorCount: predatorTotal, plantCount: plantTotal },
+      // Structures change only when one is founded or receives timber, so the
+      // list is small (bounded by MAX_STRUCTURES) and cheap to send whole.
+      structures: this.structures.map((s) => s.toData()),
     };
   }
 
@@ -1418,6 +1523,7 @@ export class World implements SimWorld {
       humans: this.humans.map((h) => h.serialize()),
       predators: this.predators.map((p) => p.serialize()),
       plants: this.plants.map((p) => p.serialize()),
+      structures: this.structures.map((st) => st.toData()),
       events: this.events.slice(-200),
       effects: this.effects,
       names: this.nameRegistry.snapshot(),
@@ -1440,6 +1546,7 @@ export class World implements SimWorld {
     world.humans = [];
     world.predators = [];
     world.plants = [];
+    world.structures.length = 0;
     world.events = [];
     world.effects = [];
     world.humanById.clear();
@@ -1473,6 +1580,10 @@ export class World implements SimWorld {
     for (const raw of (data.plants as Record<string, unknown>[]) ?? []) {
       world.plants.push(Plant.deserialize(raw));
     }
+    for (const raw of (data.structures as StructureData[]) ?? []) {
+      world.structures.push(Structure.fromData(raw));
+    }
+    world.huts = world.structures.reduce((sum, site) => sum + (site.complete ? 1 : 0), 0);
     for (const event of (data.events as WorldEvent[]) ?? []) world.events.push(event);
     for (const effect of (data.effects as WorldEffect[]) ?? []) world.effects.push(effect);
     world.matingPairs = ((data.matingPairs as MatingPair[]) ?? []).map((p) => ({ ...p }));

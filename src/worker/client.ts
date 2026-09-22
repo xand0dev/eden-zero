@@ -3,6 +3,7 @@ import type {
   DevMetrics,
   ExplanationView,
   HumanDetail,
+  StructureView,
   TreeNode,
   WorldEvent,
   WorldEffect,
@@ -11,6 +12,7 @@ import type {
 import { EntityKind, SNAPSHOT_FLOAT_STRIDE, SNAPSHOT_META_STRIDE } from '../shared/types';
 import type { GodCommand, MainToWorker, WorkerToMain, WorldConfig } from '../shared/protocol';
 import { SNAPSHOT_HZ_NORMAL } from '../shared/constants';
+import { RemoteTransport, type RemoteSnapshot, type RemoteStatus } from './remote';
 
 /** One entity, decoded from the worker's typed arrays for the renderer. */
 export interface EntityView {
@@ -49,6 +51,7 @@ export interface SimState {
   stats: WorldStats | null;
   events: WorldEvent[];
   effects: WorldEffect[];
+  structures: StructureView[];
   metrics: DevMetrics;
   selectedId: number | null;
   detail: HumanDetail | null;
@@ -103,6 +106,17 @@ export class SimClient {
   private lastRevision = -1;
   private workerLatencyMs = 0;
 
+  /**
+   * Shared-observation transport.
+   *
+   * Null in the default local mode, where the world lives in the Web Worker on
+   * this machine. When set, the world is authoritative on a server and snapshots
+   * arrive over a WebSocket instead. Everything downstream is identical — the
+   * remote path funnels into the same `applySnapshot` as the local one.
+   */
+  private remote: RemoteTransport | null = null;
+  remoteStatus: RemoteStatus = 'idle';
+
   state: SimState = {
     ready: false,
     phase: 'genesis',
@@ -119,6 +133,7 @@ export class SimClient {
     stats: null,
     events: [],
     effects: [],
+    structures: [],
     metrics: DEFAULT_METRICS,
     selectedId: null,
     detail: null,
@@ -231,7 +246,135 @@ export class SimClient {
     this.state.fps = fps;
   }
 
+  // --- shared observation ---------------------------------------------------
+
+  /**
+   * Attach to a server-hosted world.
+   *
+   * From here on the world is authoritative on the server and this client is an
+   * observer: snapshots arrive over a WebSocket, and god commands are forwarded
+   * rather than applied locally. The local worker stays alive but idle, so
+   * `disconnectRemote` can hand control back without a page reload.
+   */
+  connectRemote(url: string): void {
+    this.disconnectRemote();
+    this.remoteStatus = 'connecting';
+    this.remote = new RemoteTransport(url, {
+      onOpen: () => {
+        this.set({ phase: 'world', ready: true, paused: false, error: null }, true);
+      },
+      onWelcome: (header) => {
+        this.remoteInfo = {
+          seed: String(header.seed ?? ''),
+          slot: Number(header.slot ?? 0),
+          observers: Number(header.observers ?? 1),
+        };
+        this.set({ ready: true }, true);
+      },
+      onSnapshot: (snapshot) => {
+        // The server does not send a revision; `tick` is monotonic and is all the
+        // de-duplication needs. Remote worlds are never paused from the client's
+        // point of view — the server owns time.
+        this.applySnapshot({
+          ...snapshot,
+          revision: snapshot.tick,
+          paused: false,
+          speed: this.state.speed,
+        });
+      },
+      onAck: (header) => {
+        const outcome = String(header.outcome ?? '');
+        if (outcome) this.lastCommandOutcome = outcome;
+      },
+      onError: (message) => {
+        this.set({ error: message }, true);
+      },
+      onStatusChange: (status) => {
+        this.remoteStatus = status;
+        this.notify(true);
+      },
+    });
+    this.remote.connect();
+  }
+
+  disconnectRemote(): void {
+    this.remote?.close();
+    this.remote = null;
+    this.remoteStatus = 'idle';
+    this.remoteInfo = null;
+  }
+
+  get isRemote(): boolean {
+    return this.remote !== null;
+  }
+
+  /** Last outcome reported by the server for a god command. */
+  lastCommandOutcome = '';
+
+  remoteInfo: { seed: string; slot: number; observers: number } | null = null;
+
+  /**
+   * Apply one snapshot, from either transport.
+   *
+   * This is the single place entity decoding and state publication happen, which
+   * is what guarantees that local and shared worlds look and behave identically
+   * in the UI. Two copies of this would drift within a week.
+   */
+  private applySnapshot(snapshot: {
+    tick: number;
+    simTime: number;
+    dayPhase: number;
+    light: number;
+    ambientTemperature: number;
+    revision: number;
+    count: number;
+    ids: Int32Array;
+    floats: Float32Array;
+    meta: Uint8Array;
+    stats: WorldStats;
+    events: WorldEvent[];
+    effects: WorldEffect[];
+    structures: StructureView[];
+    paused: boolean;
+    speed: number;
+    metrics: DevMetrics;
+  }): void {
+    if (snapshot.revision !== this.lastRevision) {
+      this.lastRevision = snapshot.revision;
+      const entities = decodeEntities(snapshot.ids, snapshot.floats, snapshot.meta, snapshot.count);
+      for (const listener of this.entityListeners) listener(entities);
+      this.state.entities = entities;
+    }
+
+    this.set({
+      tick: snapshot.tick,
+      simTime: snapshot.simTime,
+      dayPhase: snapshot.dayPhase,
+      light: snapshot.light,
+      ambientTemperature: snapshot.ambientTemperature,
+      revision: snapshot.revision,
+      stats: snapshot.stats,
+      events: snapshot.events,
+      effects: snapshot.effects,
+      structures: snapshot.structures,
+      paused: snapshot.paused,
+      speed: snapshot.speed,
+      metrics: {
+        ...snapshot.metrics,
+        fps: this.state.fps,
+        workerLatencyMs: this.workerLatencyMs,
+      },
+    });
+  }
+
   private send(message: MainToWorker): void {
+    // In shared mode the world is not here, so commands go to the server. Only
+    // god commands and the observer's selection matter remotely; playback
+    // controls are meaningless when the server owns time.
+    if (this.remote) {
+      if (message.type === 'god') this.remote.send(message.command);
+      return;
+    }
     this.lastSnapshotSentAt = performance.now();
     this.worker.postMessage(message);
   }
@@ -247,31 +390,24 @@ export class SimClient {
       case 'snapshot': {
         const latency = performance.now() - this.lastSnapshotSentAt;
         this.workerLatencyMs = this.workerLatencyMs * 0.8 + latency * 0.2;
-
-        if (message.revision !== this.lastRevision) {
-          this.lastRevision = message.revision;
-          const entities = decodeEntities(message.ids, message.floats, message.meta, message.count);
-          for (const listener of this.entityListeners) listener(entities);
-          this.state.entities = entities;
-        }
-
-        this.set({
+        this.applySnapshot({
           tick: message.tick,
           simTime: message.simTime,
           dayPhase: message.dayPhase,
           light: message.light,
           ambientTemperature: message.ambientTemperature,
           revision: message.revision,
+          count: message.count,
+          ids: message.ids,
+          floats: message.floats,
+          meta: message.meta,
           stats: message.stats,
           events: message.events,
           effects: message.effects,
+          structures: message.structures,
           paused: message.paused,
           speed: message.speed,
-          metrics: {
-            ...message.metrics,
-            fps: this.state.fps,
-            workerLatencyMs: this.workerLatencyMs,
-          },
+          metrics: message.metrics,
         });
         break;
       }

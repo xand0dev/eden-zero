@@ -41,6 +41,13 @@ export interface SpeciesProfile {
   lightness: number;
   /** Can humans eat it? */
   edible: boolean;
+  /**
+   * Standing timber available to be felled. Zero for anything that is not a
+   * tree, which is what makes `wood.*` sensing tree-specific.
+   */
+  maxTimber: number;
+  /** Timber regenerated per simulated second. Trees regrow slowly. */
+  timberRegen: number;
 }
 
 export const SPECIES_PROFILES: Record<number, SpeciesProfile> = {
@@ -57,6 +64,8 @@ export const SPECIES_PROFILES: Record<number, SpeciesProfile> = {
     saturation: 0.45,
     lightness: 0.34,
     edible: true,
+    maxTimber: 0,
+    timberRegen: 0,
   },
   [PlantSpecies.Bush]: {
     name: 'bush',
@@ -71,6 +80,8 @@ export const SPECIES_PROFILES: Record<number, SpeciesProfile> = {
     saturation: 0.4,
     lightness: 0.3,
     edible: true,
+    maxTimber: 0,
+    timberRegen: 0,
   },
   [PlantSpecies.Tree]: {
     name: 'tree',
@@ -85,6 +96,8 @@ export const SPECIES_PROFILES: Record<number, SpeciesProfile> = {
     saturation: 0.35,
     lightness: 0.24,
     edible: true,
+    maxTimber: 3.2,
+    timberRegen: 0.0025,
   },
   [PlantSpecies.FoodPile]: {
     name: 'food',
@@ -99,6 +112,8 @@ export const SPECIES_PROFILES: Record<number, SpeciesProfile> = {
     saturation: 0.5,
     lightness: 0.42,
     edible: true,
+    maxTimber: 0,
+    timberRegen: 0,
   },
 };
 
@@ -113,6 +128,8 @@ export class Plant {
   ageBio = 0;
   /** Edible biomass, 0..1 of the species maximum. */
   food: number;
+  /** Standing timber, 0..maxTimber. Only trees carry any. */
+  timber = 0;
   alive = true;
   /** Cached so rendering does not have to re-read the profile table. */
   radius: number;
@@ -131,6 +148,7 @@ export class Plant {
     }
     this.growth = profile.maturityYears > 0 ? clamp(initialGrowth, 0, 1) : 1;
     this.food = profile.maxFood * this.growth * (species === PlantSpecies.FoodPile ? 1 : rng.range(0.4, 1));
+    this.timber = profile.maxTimber * this.growth;
   }
 
   get profile(): SpeciesProfile {
@@ -141,6 +159,22 @@ export class Plant {
   foodFraction(): number {
     const max = this.profile.maxFood;
     return max > 0 ? clamp(this.food / max, 0, 1) : 0;
+  }
+
+  /** Fraction of maximum standing timber currently available. */
+  timberFraction(): number {
+    const max = this.profile.maxTimber;
+    return max > 0 ? clamp(this.timber / max, 0, 1) : 0;
+  }
+
+  /**
+   * Fell timber. Returns how much was actually taken, so a human cannot credit
+   * itself wood that the tree did not have.
+   */
+  takeTimber(amount: number): number {
+    const taken = Math.min(amount, this.timber);
+    this.timber -= taken;
+    return taken;
   }
 
   update(terrain: TerrainData, dt: number, rng: Rng, canSpread: boolean): Plant | null {
@@ -158,6 +192,13 @@ export class Plant {
     } else if (profile.regen === 0) {
       // Food piles only decay.
       this.food = Math.max(0, this.food - 0.02 * dt);
+    }
+
+    // Timber regrows far more slowly than foliage — a felled tree is a lasting
+    // change to the landscape, which is the point.
+    const timberCapacity = profile.maxTimber * this.growth;
+    if (profile.timberRegen > 0 && this.timber < timberCapacity) {
+      this.timber = Math.min(timberCapacity, this.timber + profile.timberRegen * this.growth * dt);
     }
 
     if (this.ageBio >= profile.lifespanYears || (profile.regen === 0 && this.food <= 0)) {
@@ -194,6 +235,7 @@ export class Plant {
       growth: this.growth,
       ageBio: this.ageBio,
       food: this.food,
+      timber: this.timber,
       radius: this.radius,
       alive: this.alive,
     };
@@ -211,6 +253,7 @@ export class Plant {
     plant.growth = data.growth as number;
     plant.ageBio = data.ageBio as number;
     plant.food = data.food as number;
+    plant.timber = (data.timber as number) ?? plant.profile.maxTimber * plant.growth;
     plant.radius = data.radius as number;
     plant.alive = data.alive as boolean;
     return plant;

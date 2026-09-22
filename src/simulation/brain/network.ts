@@ -212,6 +212,42 @@ const INNATE_PRIORS: ReadonlyArray<readonly [number, number, number]> = [
   [S.humanFront, MOTOR(M.moveFwd), 0.5],
   [S.humanRight, MOTOR(M.turnRight), 0.45],
   [S.humanLeft, MOTOR(M.turnLeft), 0.45],
+  // --- construction -----------------------------------------------------
+  //
+  // Harvesting and building are the only behaviours that change the world
+  // permanently, so they need innate scaffolding like any other reflex: an
+  // animal has to be able to find a tree, fell it, carry the timber home and lay
+  // it. Everything above that — who builds, when, how much, whether they bother
+  // at all — is left to the network and to learning.
+  //
+  // Note that these priors are deliberately weaker than the survival drives
+  // (food 2.2, water 2.2, threat 1.9). A hungry human should eat, not chop.
+  [S.woodFront, MOTOR(M.moveFwd), 0.85],
+  [S.woodRight, MOTOR(M.turnRight), 0.6],
+  [S.woodLeft, MOTOR(M.turnLeft), 0.6],
+  [S.woodFront, MOTOR(M.harvest), 1.5],
+  [S.buildFront, MOTOR(M.moveFwd), 1.0],
+  [S.buildRight, MOTOR(M.turnRight), 0.7],
+  [S.buildLeft, MOTOR(M.turnLeft), 0.7],
+  [S.buildFront, MOTOR(M.build), 1.7],
+  // Carrying a load biases toward delivering it; an empty-handed human is not
+  // drawn to the village.
+  [S.woodCarried, MOTOR(M.build), 1.3],
+  [S.woodCarried, MOTOR(M.harvest), -0.9],
+  [S.buildNeed, MOTOR(M.build), 0.5],
+  // Shelter is pleasant: a completed hut pulls its occupants back to it,
+  // especially at night and when tired.
+  [S.shelter, MOTOR(M.rest), 0.7],
+  [S.dayPhase, MOTOR(M.rest), 0.25],
+  // Hunger and fatigue suppress work.
+  [S.hunger, MOTOR(M.harvest), -0.7],
+  [S.hunger, MOTOR(M.build), -0.5],
+  [S.thirst, MOTOR(M.harvest), -0.7],
+  [S.fatigue, MOTOR(M.harvest), -0.6],
+  [S.fatigue, MOTOR(M.build), -0.4],
+  [S.energy, MOTOR(M.harvest), 0.3],
+  [S.pain, MOTOR(M.harvest), -0.8],
+  [S.pain, MOTOR(M.build), -0.6],
   // NOTE: there is deliberately no `noise -> motor` prior here. Wiring one
   // noise channel to both `turn-left` and `turn-right` with opposite signs
   // would cancel itself out exactly. Instead the noise channel projects into

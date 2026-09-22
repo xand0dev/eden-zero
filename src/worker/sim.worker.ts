@@ -13,6 +13,7 @@
  *  - Snapshots are throttled independently of the tick rate.
  */
 import { DEFAULT_WORLD_OPTIONS, World, type WorldOptions } from '../simulation/world';
+import { applyGodCommand } from '../simulation/commands';
 import { DT, MAX_SLICE_MS, MAX_TICKS_PER_SLICE, SIM_HZ, SNAPSHOT_HZ_MAX, SNAPSHOT_HZ_NORMAL, SPEED_TICK_BUDGET } from '../shared/constants';
 import type { DevMetrics } from '../shared/types';
 import type { MainToWorker, WorkerToMain, WorldConfig } from '../shared/protocol';
@@ -192,6 +193,7 @@ function sendSnapshot(force: boolean): void {
       stats: snapshot.stats,
       events: snapshot.events,
       effects: snapshot.effects,
+      structures: snapshot.structures,
       metrics: snapshot.metrics,
       paused,
       speed,
@@ -240,38 +242,8 @@ ctx.onmessage = (event: MessageEvent<MainToWorker>) => {
 
       case 'god': {
         if (!world) return;
-        const command = message.command;
-        switch (command.kind) {
-          case 'spawnHuman':
-            world.spawnHuman(command.x, command.y);
-            break;
-          case 'kill': {
-            const human = world.getHuman(command.id);
-            if (human) world.killHuman(human, 'the observer', null);
-            break;
-          }
-          case 'lightning':
-            world.strikeLightning(command.x, command.y);
-            break;
-          case 'spawnFood':
-            world.spawnFood(command.x, command.y);
-            break;
-          case 'spawnPredator':
-            world.spawnPredator(command.x, command.y);
-            break;
-          case 'moveHuman':
-            world.repositionHuman(command.id, command.x, command.y);
-            break;
-          case 'temperature':
-            world.setTemperatureOffset(command.offset);
-            break;
-          case 'timeOfDay':
-            world.setTimeOfDay(command.phase);
-            break;
-          case 'editGenome':
-            world.editGenome(command.id, command.key as never, command.value);
-            break;
-        }
+        // Shared with the WebSocket server — see simulation/commands.ts.
+        applyGodCommand(world, message.command);
         sendSnapshot(true);
         break;
       }

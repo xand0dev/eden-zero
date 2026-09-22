@@ -42,6 +42,9 @@ interface Row {
   birthsPerHour: number;
   deathsPerHour: number;
   plants: number;
+  huts: number;
+  sites: number;
+  timber: number;
   outcome: 'thriving' | 'stable' | 'declining' | 'extinct';
 }
 
@@ -81,6 +84,9 @@ function runSeed(args: Args, seed: string): Row {
     birthsPerHour,
     deathsPerHour,
     plants: stats.plants,
+    huts: stats.huts,
+    sites: stats.sites,
+    timber: stats.timber,
     outcome: classify(stats.population, peak, birthsPerHour, deathsPerHour),
   };
 }
@@ -101,6 +107,7 @@ function main(): void {
       `  ${seed.padEnd(10)} pop ${String(row.population).padStart(4)} (peak ${String(row.peak).padStart(3)})  ` +
         `gen ${String(row.generation).padStart(2)}  ` +
         `births ${String(row.births).padStart(4)}  deaths ${String(row.deaths).padStart(4)}  ` +
+        `huts ${String(row.huts).padStart(2)}+${String(row.sites).padStart(2)}  ` +
         `${row.birthsPerHour.toFixed(1)}/${row.deathsPerHour.toFixed(1)} per h  ${row.outcome}`,
     );
   }
@@ -116,6 +123,9 @@ function main(): void {
   console.log(`  mean final population : ${meanPop.toFixed(1)}`);
   console.log(`  deepest generation    : ${maxGen}`);
   console.log(`  outcomes              : ${JSON.stringify(countBy(rows.map((row) => row.outcome)))}`);
+  const totalHuts = rows.reduce((sum, row) => sum + row.huts, 0);
+  const buildingSeeds = rows.filter((row) => row.huts > 0).length;
+  console.log(`  huts built            : ${totalHuts} across ${buildingSeeds}/${rows.length} seeds`);
 }
 
 function countBy(values: string[]): Record<string, number> {

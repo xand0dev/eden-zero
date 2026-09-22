@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { sim, useSim, formatAge, stageName } from '../ui/sim';
-import { MOTOR_NAMES } from '../simulation/brain/channels';
+import { MOTOR_NAMES, MOTOR_START, NEURON_COUNT } from '../simulation/brain/channels';
 import { REGION_NAMES, regionOf } from '../simulation/brain/channels';
-
-const NEURON_COUNT = 256;
-const MOTOR_START = 244;
 
 /**
  * Human inspector: physiology, relationships, live brain and the
@@ -486,21 +483,48 @@ function WhyPanel(): JSX.Element {
       </div>
       <div className="why-path">
         <div style={{ color: '#6c7d8d', fontSize: 10, letterSpacing: '0.1em', marginBottom: 4 }}>
-          RELEVANT NEURAL PATH
+          STRONGEST CHAIN
         </div>
         {explain.path.map((node, index) => (
           <div key={index}>
-            <span className="node">{node.label}</span>{' '}
-            <span className="arrow">({node.contribution >= 0 ? '+' : ''}{node.contribution.toFixed(3)})</span>
-            <div className="arrow" style={{ marginLeft: 2 }}>
-              ↓
-            </div>
+            <span className="node" style={index === 0 ? { color: '#ff8a3d' } : undefined}>
+              {node.label}
+            </span>{' '}
+            {index > 0 && (
+              <span className="arrow">
+                ({node.contribution >= 0 ? '+' : ''}
+                {node.contribution.toFixed(3)})
+              </span>
+            )}
+            {index < explain.path.length - 1 && (
+              <div className="arrow" style={{ marginLeft: 2 }}>
+                ↓
+              </div>
+            )}
           </div>
         ))}
-        <div className="node" style={{ color: '#ff8a3d' }}>
-          motor:{explain.action}
-        </div>
       </div>
+      {explain.learnedPath.length > 0 && (
+        <div className="why-path">
+          <div style={{ color: '#6c7d8d', fontSize: 10, letterSpacing: '0.1em', marginBottom: 4 }}>
+            LEARNED PATHWAY (THROUGH THE RECURRENT CORE)
+          </div>
+          {explain.learnedPath.map((node, index) => (
+            <div key={index}>
+              <span className="node">{node.label}</span>{' '}
+              <span className="arrow">
+                ({node.contribution >= 0 ? '+' : ''}
+                {node.contribution.toFixed(3)})
+              </span>
+              {index < explain.learnedPath.length - 1 && (
+                <div className="arrow" style={{ marginLeft: 2 }}>
+                  ↓
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="note">{explain.note}</div>
     </div>
   );

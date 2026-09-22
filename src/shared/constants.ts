@@ -67,6 +67,8 @@ export const SNAPSHOT_HZ_MAX = 3;
 export const MAX_POPULATION = 900;
 export const MAX_PLANTS = 6000;
 export const MAX_PREDATORS = 400;
+/** Cap on built structures. A thriving village keeps building, but not forever. */
+export const MAX_STRUCTURES = 160;
 
 /** Event feed retention. */
 export const MAX_EVENTS = 400;

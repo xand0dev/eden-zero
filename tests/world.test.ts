@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_WORLD_OPTIONS, World } from '../src/simulation/world';
 import { LifeStage, Sex } from '../src/shared/types';
 import { AGE_ADULT_END, AGE_BABY_END, AGE_CHILD_END } from '../src/shared/constants';
+import { MOTOR_COUNT, NEURON_COUNT } from '../src/simulation/brain/channels';
 import type { Human } from '../src/simulation/entities/human';
 import type { Predator } from '../src/simulation/entities/predator';
 
@@ -237,10 +238,10 @@ describe('observability', () => {
     const detail = world.humanDetail(human.id);
     expect(detail).not.toBeNull();
     expect(detail?.name).toBe(human.name);
-    expect(detail?.neuronCount).toBe(256);
+    expect(detail?.neuronCount).toBe(NEURON_COUNT);
     expect(detail?.synapseCount).toBeGreaterThan(1000);
     expect(detail?.genome.length).toBeGreaterThan(20);
-    expect(detail?.motor.length).toBe(12);
+    expect(detail?.motor.length).toBe(MOTOR_COUNT);
   });
 
   it('produces a brain view with activity for every neuron', () => {
@@ -248,8 +249,8 @@ describe('observability', () => {
     const human = world.humans[0];
     for (let i = 0; i < 100; i++) world.step();
     const view = world.brainView(human.id);
-    expect(view?.activity.length).toBe(256);
-    expect(view?.motor.length).toBe(12);
+    expect(view?.activity.length).toBe(NEURON_COUNT);
+    expect(view?.motor.length).toBe(MOTOR_COUNT);
     expect(view?.synapses.length).toBeGreaterThan(10);
   });
 
@@ -343,7 +344,7 @@ describe('statistics', () => {
     expect(stats.population).toBe(world.humans.length);
     expect(stats.males + stats.females).toBe(stats.population);
     expect(stats.babies + stats.children + stats.adults + stats.elders).toBe(stats.population);
-    expect(stats.averageNeurons).toBe(256);
+    expect(stats.averageNeurons).toBe(NEURON_COUNT);
     expect(stats.averageSynapses).toBeGreaterThan(1000);
   });
 });
