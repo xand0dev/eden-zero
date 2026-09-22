@@ -33,18 +33,43 @@ const STARVATION_DAMAGE = 3.4;
 const PAIN_DECAY = 2.2;
 const HEALTH_REGEN = 0.35;
 
-const BASE_SPEED = 3.75;
+/** Faster than a walking human (3.05), slower than a sprinting one, so flight works. */
+const BASE_SPEED = 3.4;
 const TURN_RATE = 2.75;
 const ATTACK_REACH = 1.75;
-const ATTACK_INTERVAL_TICKS = 4;
-const ATTACK_DAMAGE_SCALE = 0.25;
+/**
+ * Ticks between bites, and damage per bite.
+ *
+ * These two numbers decide whether a world is a predator-prey system or an
+ * extermination. Note that `attackPower` is a 0.2–30 gene with a typical value
+ * around 7, not around 100 — an early attempt to soften predation by dropping
+ * this scale to 0.12 reduced a bite to under one point of damage and made
+ * predators harmless, which is just as broken as being lethal.
+ *
+ * At 0.5 with a 14-tick interval the damage rate is about `0.7 x attackPower` per
+ * second, so a typical predator needs roughly twenty seconds of *sustained*
+ * contact to bring down a healthy adult. That is long enough for a sprinting
+ * human to break away, and short enough that being cornered is fatal.
+ */
+const ATTACK_INTERVAL_TICKS = 14;
+const ATTACK_DAMAGE_SCALE = 0.5;
 const REACH = 1.5;
 const BITE_SIZE = 0.4;
 const BITE_INTERVAL_TICKS = 6;
 const HUNGER_PER_FOOD = 150;
 const ENERGY_PER_FOOD = 105;
 
-const REPRODUCTION_COOLDOWN = 900;
+/**
+ * Ticks between predator reproductions.
+ *
+ * Predators have no natural enemy and their only limit is prey, so their
+ * reproduction rate directly sets how hard they press the human population. At
+ * 900 ticks (45 s) three predators became six in under a simulated hour, overshot
+ * the prey base and drove the village to a single female — a textbook predator
+ * boom-and-crash that the prey could not recover from. Slower budding lets the
+ * two populations coexist.
+ */
+const REPRODUCTION_COOLDOWN = 3000;
 const REPRODUCTION_MIN_AGE = 4;
 const WATER_SCAN_INTERVAL = 5;
 
@@ -472,8 +497,8 @@ export class Predator {
     if (!this.isAdult()) return null;
     if (this.ageBio < REPRODUCTION_MIN_AGE) return null;
     if (world.tick - this.lastReproductionTick < REPRODUCTION_COOLDOWN) return null;
-    if (this.energy < 68 || this.hunger > 32) return null;
-    if (this.motor[M.mate] < 0.4) return null;
+    if (this.energy < 82 || this.hunger > 24) return null;
+    if (this.motor[M.mate] < 0.55) return null;
 
     this.lastReproductionTick = world.tick;
     this.energy -= 30;

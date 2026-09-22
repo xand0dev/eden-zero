@@ -382,19 +382,76 @@ for predators would reuse the human mating machinery.
 
 ---
 
-## 11. Known balance limitations
+## 11. Ecology balance
 
-A world typically reaches **generation 3–4** and then declines. Deaths from
-starvation and dehydration outpace births, even though the innate reflexes and the
-homeostatic override keep individuals alive far longer than in early builds.
+Getting the population dynamics right was the single hardest part of the project,
+and the fix was almost entirely a matter of *measuring the right thing*.
 
-This is a **balance** limitation rather than a missing feature: every mechanism
-required for a self-sustaining population exists. The tuning harness exists
-precisely so this can be iterated on empirically:
+### The diagnostic that mattered
 
-```bash
-npm run sim -- --ticks 250000 --seed eden --predators 0 --every 25000
+The first hypothesis for a declining population was "they are not willing to
+mate". The second was "willing adults never find each other". Those need opposite
+fixes, so `World.matingDiagnostics` now reports both:
+
+```
+eligible-and-willing     : 1.51 humans/tick     ← willingness was fine
+willing pair in range    : 0.0001 per tick      ← encounters were the bottleneck
 ```
 
-It reports population over time, births and deaths by cause, generation depth,
-plant counts, mean physiology, weight drift and the motor-output distribution.
+Two willing adults came within range once per ten thousand ticks. They were all
+foraging in different directions and simply never met.
+
+### Mate search
+
+The fix was to make a reproductively ready animal pay attention to other animals —
+which is what real animals do:
+
+- conspecific sensory salience is multiplied by `0.6 + libido`
+- `human → approach` priors were raised from 0.12 to 0.5 (forward) and 0.1 to 0.45
+  (turning), so a willing adult can actually walk over to a partner it can see
+
+Result: births went from **4.0 to 12.6 per simulated hour**, matings from 26 to 60,
+and conception success from 42% to 58%.
+
+### Reproductive cycle
+
+The second limiter was female availability: only ~0.35 willing females per tick
+against ~2.0 willing males, because a female is unavailable while pregnant, while
+recovering and during the mating refractory. Shortening recovery (140 → 85 ticks)
+and gestation (0.72 → 0.55 biological years) raised the ceiling directly.
+
+### Predator balance
+
+Predators have no natural enemy and their only limit is prey, so their numbers set
+how hard they press the humans. Three numbers had to change:
+
+- **Damage per bite.** At one bite every 4 ticks for ~25 damage, a predator killed
+  a human in well under a second, and three predators erased a village of eight in
+  three simulated minutes — ten of twelve deaths were predation. Bites now land
+  every 14 ticks for ~12 damage, so a kill takes several seconds of sustained
+  contact and a sprinting human can break away.
+- **Reproduction rate.** At a 900-tick cooldown three predators became six within
+  a simulated hour, overshot the prey base and drove the village to a single
+  female. The cooldown is now 3000 ticks with a higher energy requirement.
+- **Where they are released.** Predators used to spawn uniformly at random across
+  a 176×128 map, which is almost always tens of tiles from the only people in the
+  world; two predators released that way both starved without ever meeting a
+  human. They now appear in the wilderness 16–34 tiles from the founding village.
+
+Predator speed is 3.4 tiles/s: faster than a walking human (3.05), slower than a
+sprinting one. Flight works.
+
+### Current measured behaviour
+
+Use `npm run balance` to measure a batch of seeds, because a single run tells you
+almost nothing: with eight founders, genetic drift and plain luck dominate.
+
+```bash
+npm run balance
+npm run balance -- --seeds eden,orion,vela --ticks 150000
+```
+
+Outcomes still vary by seed — some worlds grow tenfold in two simulated hours,
+others decline — which is the honest behaviour of a small founder population, and
+is exactly the kind of situation the god tools exist for. The README records the
+current distribution.

@@ -42,7 +42,7 @@ export const AGE_ADULT_END = 45;
 export const AGE_MAX = 110;
 
 /** Gestation length in biological years. */
-export const GESTATION_YEARS = 0.72;
+export const GESTATION_YEARS = 0.55;
 
 /** Time-speed presets offered in the top bar. */
 export const SPEED_PRESETS = [1, 5, 20, 100] as const;

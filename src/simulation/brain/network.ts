@@ -192,10 +192,17 @@ const INNATE_PRIORS: ReadonlyArray<readonly [number, number, number]> = [
   // preference for one direction turned the founders into spinning tops.
   [S.foodBack, MOTOR(M.moveFwd), -0.15],
   [S.waterBack, MOTOR(M.moveFwd), -0.2],
-  // Conspecific approach.
-  [S.humanFront, MOTOR(M.moveFwd), 0.12],
-  [S.humanRight, MOTOR(M.turnRight), 0.1],
-  [S.humanLeft, MOTOR(M.turnLeft), 0.1],
+  // Conspecific approach — mate search.
+  //
+  // These weights are deliberately strong. With the original weak values (0.12)
+  // a willing adult could see a partner three tiles away and still not walk
+  // over; instrumenting the mating pipeline showed two willing adults coming
+  // within range only once per ten thousand ticks, which is why populations
+  // never replaced themselves. Approaching another animal is a real behaviour
+  // and it needs a real prior.
+  [S.humanFront, MOTOR(M.moveFwd), 0.5],
+  [S.humanRight, MOTOR(M.turnRight), 0.45],
+  [S.humanLeft, MOTOR(M.turnLeft), 0.45],
   // NOTE: there is deliberately no `noise -> motor` prior here. Wiring one
   // noise channel to both `turn-left` and `turn-right` with opposite signs
   // would cancel itself out exactly. Instead the noise channel projects into

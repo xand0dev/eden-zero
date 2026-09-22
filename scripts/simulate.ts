@@ -150,6 +150,27 @@ function main(): void {
     console.log(`  ${reason.padEnd(28)} ${count}`);
   }
 
+  // --- demographics -------------------------------------------------------
+  //
+  // The population question is "are births keeping up with deaths, and if not,
+  // why". These numbers answer the "why" directly rather than by inference.
+  const minutes = (args.ticks * DT) / 60;
+  const hours = minutes / 60;
+  console.log('\ndemographics:');
+  console.log(
+    `  births / deaths per hour : ${(stats.births / hours).toFixed(1)} / ${(stats.deaths / hours).toFixed(1)}`,
+  );
+  const d = world.matingDiagnostics;
+  console.log(`  eligible-and-willing     : ${(d.willingTicks / Math.max(1, d.ticks)).toFixed(2)} humans/tick`);
+  console.log(`  of which female          : ${(d.willingFemalesTicks / Math.max(1, d.ticks)).toFixed(2)} humans/tick`);
+  console.log(`  willing pair in range    : ${(d.opportunities / Math.max(1, d.ticks)).toFixed(4)} per tick`);
+  console.log(`  pairings                 : ${d.pairings}`);
+  console.log(`  completed matings        : ${world.totalMatings}`);
+  console.log(
+    `  conception success       : ${((stats.births / Math.max(1, world.totalMatings)) * 100).toFixed(0)}%`,
+  );
+  console.log(`  mean offspring per female: ${(stats.births / Math.max(1, args.humans / 2)).toFixed(2)}`);
+
   console.log('\nmotor output distribution (all humans, all ticks):');
   const sorted = [...actionCounts.entries()].sort((a, b) => b[1] - a[1]);
   const total = sorted.reduce((sum, [, count]) => sum + count, 0) || 1;

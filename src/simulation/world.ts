@@ -3,7 +3,7 @@ import { DT, MAX_EVENTS, MAX_PLANTS, MAX_POPULATION, MAX_PREDATORS, SPATIAL_CELL
 import { SpatialGrid } from './spatial/grid';
 import { generateTerrain, nearestWalkable, computeWaterDistance, type TerrainData } from './environment/terrain';
 import { ambientTemperature, createClimate, updateClimate, type Climate } from './environment/climate';
-import { Human, MATING_DURATION } from './entities/human';
+import { Human, MATING_DURATION, MATING_REFRACTORY } from './entities/human';
 import { Predator } from './entities/predator';
 import { Plant, PlantSpecies, SPECIES_PROFILES } from './entities/plant';
 import type { SimWorld } from './entities/context';
@@ -36,6 +36,16 @@ import { MOTOR_NAMES, MOTOR_START, M, labelNeuron, regionOf } from './brain/chan
 import { explainAction } from './brain/trace';
 import { Brain } from './brain/network';
 import type { InheritanceReport } from './genetics/evolution';
+
+/**
+ * How close two willing adults must be to pair.
+ *
+ * Raised from 2.4 after the mating diagnostics showed that willing pairs were
+ * being formed only a handful of times per simulated hour: in a village of eight
+ * to twelve people who spend most of their time foraging in different
+ * directions, two mutually willing adults rarely pass within two tiles.
+ */
+const MATING_RADIUS = 3.4;
 
 /**
  * Everything we keep about a birth, so the inspector can later answer
@@ -103,6 +113,8 @@ export class World implements SimWorld {
 
   readonly nameRegistry = new NameRegistry();
   private nextEntityId = 1;
+  /** Centre of the founding village, used to place predators in the surrounding wilderness. */
+  private settlementCentre: { x: number; y: number } | null = null;
   private nextEventId = 1;
   private nextEffectId = 1;
 
@@ -190,6 +202,7 @@ export class World implements SimWorld {
     // still on the books. A founding population needs to be a *population*.
     const sites = this.settlementSites();
     const home = sites.length > 0 ? sites[0] : [this.terrain.width / 2, this.terrain.height / 2];
+    this.settlementCentre = { x: home[0], y: home[1] };
 
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2 + this.rng.range(-0.35, 0.35);
@@ -271,11 +284,22 @@ export class World implements SimWorld {
   }
 
   private seedPredators(count: number): void {
+    // Release predators in the wilderness *around* the village, not uniformly
+    // across the map.
+    //
+    // A random map position is almost always tens of tiles from the only people
+    // in the world, and a predator that cannot find prey within a couple of
+    // simulated minutes simply starves: in an early build two predators released
+    // at random both died without ever meeting a human, which makes for a very
+    // dull ecology.
+    const home = this.settlementCentre ?? { x: this.terrain.width / 2, y: this.terrain.height / 2 };
     for (let i = 0; i < count; i++) {
+      const angle = (i / Math.max(1, count)) * Math.PI * 2 + this.rng.range(-0.6, 0.6);
+      const radius = this.rng.range(16, 34);
       const [x, y] = nearestWalkable(
         this.terrain,
-        this.rng.range(8, this.terrain.width - 8),
-        this.rng.range(8, this.terrain.height - 8),
+        home.x + Math.cos(angle) * radius,
+        home.y + Math.sin(angle) * radius,
       );
       const genome = randomGenome(this.rng, 1);
       const predator = new Predator(this.nextEntityId++, `Hunter ${i + 1}`, genome, this.rng.fork());
@@ -495,8 +519,8 @@ export class World implements SimWorld {
       if (pair.progress >= 1) {
         a.cancelMating();
         b.cancelMating();
-        a.matingCooldown = 55;
-        b.matingCooldown = 55;
+        a.matingCooldown = MATING_REFRACTORY;
+        b.matingCooldown = MATING_REFRACTORY;
         a.lastMateTick = this.tick;
         b.lastMateTick = this.tick;
         this.matingPairs.splice(i, 1);
@@ -507,13 +531,22 @@ export class World implements SimWorld {
     // 2. Form new pairs. Requires MUTUAL participation: both partners must be
     //    driving their mate motor above threshold and both must be eligible.
     const available: Human[] = [];
+    let willingFemales = 0;
     for (let i = 0; i < this.humans.length; i++) {
       const human = this.humans[i];
       if (!human.alive) continue;
       if (!human.canMate()) continue;
       if (human.motor[M.mate] < 0.35) continue;
+      if (human.sex === Sex.Female) willingFemales++;
       available.push(human);
     }
+
+    // Diagnostics: distinguish "nobody is willing" from "willing people never
+    // meet". Those two failures need completely different fixes.
+    this.matingDiagnostics.willingTicks += available.length;
+    this.matingDiagnostics.willingFemalesTicks += willingFemales;
+    this.matingDiagnostics.ticks += 1;
+
     if (available.length < 2) return;
 
     for (let i = 0; i < available.length; i++) {
@@ -529,13 +562,15 @@ export class World implements SimWorld {
         if (b.sex === a.sex) continue;
         if (!b.canMate()) continue;
         const distance = Math.hypot(b.x - a.x, b.y - a.y);
-        if (distance > 2.4) continue;
+        if (distance > MATING_RADIUS) continue;
+        this.matingDiagnostics.opportunities += 1;
         if (distance < bestDistance) {
           bestDistance = distance;
           best = b;
         }
       }
       if (!best) continue;
+      this.matingDiagnostics.pairings += 1;
       a.mating = { partnerId: best.id, progress: 0 };
       best.mating = { partnerId: a.id, progress: 0 };
       this.matingPairs.push({ aId: a.id, bId: best.id, progress: 0 });
@@ -548,6 +583,22 @@ export class World implements SimWorld {
     }
   }
 
+  /**
+   * Mating-pipeline counters.
+   *
+   * These exist because the first hypothesis for a declining population was
+   * "they are not willing to mate", and the second was "willing adults never
+   * find each other". The two need opposite fixes, and guessing wasted a lot of
+   * time — so the pipeline reports which one is actually binding.
+   */
+  readonly matingDiagnostics = {
+    ticks: 0,
+    willingTicks: 0,
+    willingFemalesTicks: 0,
+    opportunities: 0,
+    pairings: 0,
+  };
+
   private matingPairs: MatingPair[] = [];
 
   private completeMating(a: Human, b: Human): void {
@@ -557,7 +608,7 @@ export class World implements SimWorld {
     if (mother.pregnancy) return;
 
     // Conception is probabilistic and depends on both parents' fertility.
-    const chance = 0.75 * Math.min(1, mother.fertility01) * Math.min(1, father.fertility01) * mother.genome.fertility;
+    const chance = 0.9 * Math.min(1, mother.fertility01) * Math.min(1, father.fertility01) * mother.genome.fertility;
     if (this.rng.next() > chance) return;
 
     const { genome, report } = reproduce(mother.genome, father.genome, this.rng, {
@@ -638,7 +689,14 @@ export class World implements SimWorld {
     }
 
     mother.pregnancy = null;
-    mother.recovery = 140;
+    // Recovery after birth.
+    //
+    // The reproductive cycle is what caps population growth: a female is
+    // unavailable while pregnant, while recovering, and during the mating
+    // refractory, and the mating diagnostics showed only ~0.35 willing females
+    // per tick against ~2.0 willing males. Shortening recovery directly raises
+    // the birth rate without touching behaviour.
+    mother.recovery = 85;
     mother.health = Math.max(35, mother.health - 6);
     mother.energy = Math.max(0, mother.energy - 22);
     mother.fatigue = Math.min(100, mother.fatigue + 35);

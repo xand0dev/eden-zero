@@ -28,8 +28,8 @@ import { Tile, isWater, tileAt } from '../environment/terrain';
  * makes for a bad observatory. At x20 speed a meal cycle is still about ten
  * seconds of wall-clock time, so foraging remains the dominant visible activity.
  */
-const HUNGER_RATE = 0.32;
-const THIRST_RATE = 0.42;
+const HUNGER_RATE = 0.26;
+const THIRST_RATE = 0.34;
 const FATIGUE_RATE = 1.1;
 const FATIGUE_REST_RATE = 5.2;
 const ENERGY_DRAIN_BASE = 0.3;
@@ -58,7 +58,14 @@ const TOUCH_RANGE = 0.95;
 
 /** Duration of a mating event, in simulated seconds. */
 export const MATING_DURATION = 7;
-const MATING_REFRACTORY = 38;
+/**
+ * Ticks a human must wait after mating before it can mate again.
+ *
+ * Exported because the world owns the mating lifecycle (pairing, completion,
+ * cooldowns) and duplicating the number there is how the two drifted apart
+ * before.
+ */
+export const MATING_REFRACTORY = 38;
 
 const ATTACK_REACH = 1.5;
 const ATTACK_INTERVAL_TICKS = 4;
@@ -326,14 +333,6 @@ export class Human {
     for (let i = 0; i < 32; i++) s[i] = 0;
 
     const vision = this.genome.visionRange * (0.55 + 0.45 * this.growth());
-    /**
-     * Foraging range. Food and water are sensed by scent as well as sight, and
-     * scent carries much further than vision. Without this the founders only
-     * notice a river once they are almost standing in it, wander away, and die
-     * of thirst in the middle of a fertile valley. Vision is still used for
-     * threats and conspecifics, where resolution matters more than range.
-     */
-    const foraging = vision * 2.4;
     const hunger01 = this.hunger / 100;
     const thirst01 = this.thirst / 100;
     const stress01 = this.stress / 100;
@@ -346,6 +345,26 @@ export class Human {
     conspecific.fill(0);
     threat.fill(0);
     let touch = 0;
+
+    // Two different ranges for two different senses.
+    //
+    // Food is dense — thousands of plants — so a short range is both sufficient
+    // and much cheaper. Water is sparse and often tens of tiles away, so it needs
+    // a long range. Using one shared "foraging" radius of 76 tiles made every
+    // human scan essentially every plant on the map every few ticks: at a
+    // population of eighty that alone dominated the tick cost, and the simulation
+    // crawled. This is also the more biologically sensible arrangement — you see
+    // the berry bush in front of you and smell the river from across the valley.
+    const foodRange = vision * 1.5;
+    /**
+     * Water sensing range.
+     *
+     * Water is sparse and often tens of tiles away, and scent carries much
+     * further than vision. Without a long range the founders only noticed a river
+     * once they were almost standing in it, wandered away, and died of thirst in
+     * the middle of a fertile valley.
+     */
+    const waterRange = vision * 3.2;
 
     this.visibleIds.length = 0;
     let familiarity = 0;
@@ -361,14 +380,14 @@ export class Human {
     let bestFoodDy = 0;
     let bestFoodDist = Infinity;
     let bestFoodValue = 0;
-    const plantCount = world.queryPlants(this.x, this.y, foraging, this.scratch);
+    const plantCount = world.queryPlants(this.x, this.y, foodRange, this.scratch);
     for (let i = 0; i < plantCount; i++) {
       const plant = world.plants[this.scratch[i]];
       if (!plant || plant.food < 0.14) continue;
       const dx = plant.x - this.x;
       const dy = plant.y - this.y;
       const dist = Math.hypot(dx, dy);
-      if (dist > foraging) continue;
+      if (dist > foodRange) continue;
       if (dist < TOUCH_RANGE) touch = 1;
       if (dist < bestFoodDist) {
         bestFoodDist = dist;
@@ -385,7 +404,7 @@ export class Human {
       // this the search drive never switches off and the animal walks straight
       // past the river it is dying of thirst beside.
       const reachFactor = bestFoodDist > REACH ? 1 : 0.15;
-      const weight = (1 - bestFoodDist / foraging) * bestFoodValue * reachFactor;
+      const weight = (1 - bestFoodDist / foodRange) * bestFoodValue * reachFactor;
       encodeDirection(bestFoodDx, bestFoodDy, this.heading, weight, food);
     }
 
@@ -415,7 +434,12 @@ export class Human {
       }
     }
     if (nearestHumanDist < Infinity) {
-      const weight = (1 - nearestHumanDist / vision) * this.genome.socialGain;
+      // Mate search: a reproductively ready animal pays more attention to other
+      // animals. Without this the inhabitants foraged past each other forever —
+      // the mating diagnostics showed two willing adults coming within range
+      // only once per ten thousand ticks.
+      const mateSearch = 0.6 + this.libido;
+      const weight = (1 - nearestHumanDist / vision) * this.genome.socialGain * mateSearch;
       encodeDirection(nearestHumanDx, nearestHumanDy, this.heading, weight, conspecific);
     }
 
@@ -446,7 +470,7 @@ export class Human {
     }
 
     // --- water ------------------------------------------------------------
-    this.scanWater(world, foraging);
+    this.scanWater(world, waterRange);
     // Same "search terminates on contact" rule as for food: standing at the
     // water's edge must stop driving locomotion, or the animal walks the
     // shoreline forever without ever lowering its head to drink.

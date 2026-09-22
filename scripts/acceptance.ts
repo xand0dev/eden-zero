@@ -269,15 +269,21 @@ check(31, 'Predators exist', eco.predators.length > 0, `${eco.predators.length} 
 
 // Force a predator/human encounter. Predators are autonomous and may have
 // starved during the ecology run above, so release a fresh one if needed.
+//
+// The budget is generous on purpose: a kill now takes several seconds of
+// sustained contact (predators bite every 0.7 s for ~12 damage rather than every
+// 0.2 s for ~25), and the victim flees. The point of this check is that predation
+// is *possible* and attributed correctly, not that it is fast.
 const predator = eco.predators[0] ?? eco.spawnPredator(60, 60);
 const victim = eco.humans[0];
 let violent = false;
 if (predator && victim) {
-  for (let i = 0; i < 4000 && !violent; i++) {
+  for (let i = 0; i < 20000 && !violent; i++) {
     predator.x = victim.x + 0.4;
     predator.y = victim.y;
     predator.hunger = 95;
     predator.energy = 30;
+    predator.pain = 0;
     eco.step();
     if (!victim.alive) violent = true;
   }

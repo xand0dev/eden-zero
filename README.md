@@ -198,13 +198,66 @@ panel says so. It is not a causal proof and does not claim to be.
 
 ---
 
+## Ecology balance
+
+Population dynamics were the hardest part of the project, and the fix came from
+*measuring the right thing* rather than from guessing.
+
+The first hypothesis was "they are not willing to mate". The second was "willing
+adults never find each other". Those need opposite fixes, so the mating pipeline
+now reports both:
+
+```
+eligible-and-willing     : 1.51 humans/tick     ← willingness was fine
+willing pair in range    : 0.0001 per tick      ← encounters were the bottleneck
+```
+
+Two willing adults came within range once per ten thousand ticks. They were all
+foraging in different directions and simply never met.
+
+Three fixes followed:
+
+- **Mate search.** Conspecific salience is now scaled by libido, and the
+  `human → approach` priors went from 0.12 to 0.5 — a reproductively ready animal
+  pays attention to other animals, which is what real animals do.
+- **Reproductive cycle.** A female was unavailable while pregnant, while
+  recovering and during the mating refractory. Shortening recovery and gestation
+  raised the ceiling directly.
+- **Predator pressure.** Predators bit every 0.2 s for ~25 damage, which killed a
+  human in under a second; three of them erased a village of eight in three
+  simulated minutes. Bites now land every 0.7 s, predators reproduce five times
+  more slowly, and they are released in the wilderness around the village rather
+  than uniformly across the map (where they starved without ever meeting anyone).
+
+Measured across six seeds, 1.4 simulated hours each, from eight founders:
+
+```
+  seed       final pop   generation   births/h  deaths/h   outcome
+  eden            27          3          23.8      10.1     thriving
+  orion            1          1           2.9       7.9     declining
+  vela             6          3           6.5       7.9     declining
+  lumen           16          2          17.3      11.5     thriving
+  tessera         34          3          36.7      18.0     thriving
+  auriga          10          3          10.8       9.4     stable
+
+  6/6 survived · 4/6 with births ≥ deaths · mean final population 15.7
+```
+
+Worlds no longer reliably go extinct, and some grow fourfold. Outcomes still vary
+by seed — with eight founders, genetic drift and plain luck dominate, which is the
+honest behaviour of a small founding population and exactly the situation the god
+tools exist for. Reproduce these numbers with:
+
+```bash
+npm run balance
+```
+
 ## Current limitations
 
-- **Population dynamics are fragile.** A world typically reaches generation 3–4
-  and then declines. Individuals are autonomous and some simply fail to forage
-  effectively; selection is real but slow relative to the current mortality rate.
-  This is a *balance* limitation, not a missing feature — see the tuning harness
-  below.
+- **Ecology is viable, not tuned.** Roughly a third of seeds still decline over
+  the first simulated hours. The mechanisms are all present and the population is
+  no longer fragile, but the balance is not yet such that every world thrives.
+  `npm run balance` exists so this can be measured rather than guessed at.
 - Predator reproduction is asexual (see above).
 - Human language, culture, crafting, construction, agriculture and tools are out
   of scope for V0 by design.
@@ -212,19 +265,25 @@ panel says so. It is not a causal proof and does not claim to be.
   function exists but is not yet driven from the tick loop).
 - The world is a single fixed 176×128 tile map; there is no world generator UI.
 - Rendering uses procedural vector sprites; there are no authored art assets.
+- Tick cost grows with population, because each animal scans nearby plants and
+  conspecifics. It is comfortable into the low hundreds; a few thousand would need
+  a different broad-phase strategy.
 
 ### Tuning harness
 
 Because "it compiles" is not evidence that an artificial-life world works, the
-repository ships a headless harness:
+repository ships two headless harnesses:
 
 ```bash
 npm run sim -- --ticks 200000 --seed eden --predators 0 --every 20000
+npm run balance -- --seeds eden,orion,vela --ticks 150000
 ```
 
-It reports population, births, deaths, generations, plant counts, mean
-physiology, weight drift and the motor-output distribution, so ecology changes can
-be evaluated in seconds rather than by watching a window.
+`sim` reports population over time, births and deaths by cause, generation depth,
+plant counts, mean physiology, weight drift, the motor-output distribution **and
+the mating pipeline** (`eligible-and-willing`, `willing pair in range`, `pairings`,
+conception success, offspring per female). `balance` runs a batch of seeds and
+reports the distribution, because a single run tells you almost nothing.
 
 ---
 
@@ -344,7 +403,9 @@ See `docs/ARCHITECTURE.md` and `docs/SIMULATION.md` for the full picture.
 
 ## Roadmap
 
-- **Balance pass** on ecology so populations grow rather than merely persist.
+- **Further balance work** so a larger fraction of seeds thrive rather than merely
+  survive. `npm run balance` is the measurement tool.
+- **Broad-phase sensing** so tick cost stays flat into the thousands of animals.
 - **Social memory decay** driven from the tick loop.
 - **Sexual reproduction for predators**, reusing the human mating machinery.
 - **Rust migration** of the neural update, genetic operations and spatial queries
