@@ -22,6 +22,25 @@ export type PlantSpecies = (typeof PlantSpecies)[keyof typeof PlantSpecies];
 
 export const PLANT_SPECIES_NAMES = ['grass', 'bush', 'tree', 'food'] as const;
 
+/**
+ * Radius a felled tree shrinks to, as a fraction of its full radius.
+ *
+ * Not zero on purpose: a stump is still something you can see, and a logged
+ * stand should read as a place that has been cut rather than as bare ground.
+ * The difference between "nothing was ever here" and "something was taken" is
+ * the whole reason for showing it.
+ */
+export const STUMP_RADIUS_FRACTION = 0.4;
+
+/**
+ * Timber fraction below which a *fully grown* tree counts as a stump.
+ *
+ * Low, because the fraction is relative to `maxTimber * growth`: a half-grown
+ * tree sits at 0.5 without anyone having touched it, and calling that a stump
+ * would make a young forest look like a logged one.
+ */
+export const STUMP_TIMBER_FRACTION = 0.2;
+
 export interface SpeciesProfile {
   name: string;
   maxFood: number;
@@ -165,6 +184,18 @@ export class Plant {
   timberFraction(): number {
     const max = this.profile.maxTimber;
     return max > 0 ? clamp(this.timber / max, 0, 1) : 0;
+  }
+
+  /**
+   * Whether the tree has been felled to a stump.
+   *
+   * Note that `timberFraction()` alone cannot answer this: a tree's timber is
+   * `maxTimber * growth`, so a young tree that nobody has touched also reports a
+   * low fraction. Only a tree that is fully grown *and* has had its timber taken
+   * is a stump.
+   */
+  isStump(): boolean {
+    return this.profile.maxTimber > 0 && this.growth > 0.85 && this.timberFraction() < STUMP_TIMBER_FRACTION;
   }
 
   /**

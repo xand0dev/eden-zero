@@ -217,3 +217,62 @@ interpolation claim was settled.
 
 The measure of success is not "the agents build things". It is that at minute
 fifteen there is something a god can still lose.
+
+---
+
+## 8. Status
+
+### S1 — done, and it turned up two things nobody was looking for
+
+Felling is now visible: a tree carries its timber fraction in the snapshot and
+the renderer draws it at a size proportional to what is left, turning brown at a
+stump. `Plant.isStump()` distinguishes a felled tree from a merely young one,
+because a tree's timber is `maxTimber * growth` and a sapling reports a low
+fraction without anyone having touched it — the first version of this code drew
+every young tree as a stump.
+
+**Finding 1 — eight sensory channels were dead.** `woodDir` and `buildDir` were
+computed every tick and then never written into the sensory array, so
+`wood.{front,right,back,left}` and `build.{front,right,back,left}` were
+permanently zero. The network could not see *where* the trees or the building
+sites were; huts got built by wandering into a site rather than by steering
+toward one. Fixed. This is the single largest behaviour change in S1 and it was
+not on the plan.
+
+**Finding 2 — the founders are settled far from the forest.** Measuring tree
+distance from each human at genesis:
+
+```
+seed          trees   nearest tree   trees within 12 tiles
+woodchoice      202          10.3              3
+eden            149           —               0
+forest           99           —               0
+trees           109           —               0
+```
+
+In three of four seeds no human has a tree within sixteen tiles. That is why S2
+matters more than it looked: the settlement is not at the forest edge, it is
+somewhere else entirely, and the forest has to be reached before it can be
+settled.
+
+**The measured consequence, and it is not the one the plan predicted.** A
+120 000-tick soak with 11 huts built:
+
+```
+tick 0        trees=157   timber= 363   stumps= 0
+tick 30000    trees=729   timber=1106   stumps=73
+tick 60000    trees=1146  timber=2633   stumps= 1
+tick 120000   trees=1827  timber=5238   stumps= 2
+```
+
+Stumps peak at 73 and then fall away, and standing timber *rises* — the forest
+outgrows the felling by more than an order of magnitude. So S1 made exhaustion
+visible but not yet felt. The mechanism is right and the balance is not: either
+`timberRegen` and tree seeding are too generous, or eleven huts is simply not
+enough demand. That is a tuning question for after S2, and it is recorded here
+rather than papered over.
+
+### Everything else
+
+S2 through S5 are not started. The brain change in step 3 has not happened, so
+`SAVE_VERSION` is still 1 and no save has been invalidated.

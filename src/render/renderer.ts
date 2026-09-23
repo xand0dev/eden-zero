@@ -640,22 +640,33 @@ export class WorldRenderer {
       const species = entity.sex; // plant species is packed into the sex byte
       const profile = SPECIES_PROFILES[species] ?? SPECIES_PROFILES[PlantSpecies.Grass];
       const food = entity.health;
-      // Grass, bush and tree are drawn at increasing footprint so a forest reads
-      // as a forest at a glance.
-      const size = (species === PlantSpecies.Tree ? 3 : species === PlantSpecies.Bush ? 2 : 1) * scale;
-      const lightness = profile.lightness + food * 0.16;
-      const color = hslToHex(profile.hue, profile.saturation, lightness);
-      context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
       const cx = entity.x * scale;
       const cy = entity.y * scale;
+
       if (species === PlantSpecies.Tree) {
-        // A small canopy rather than a square.
+        // For plants `entity.size` is the fraction of standing timber, not a
+        // radius. A tree that has been felled draws small and brown and swells
+        // back into a canopy as it regrows, so logging is visible in the world.
+        const timber = entity.size;
+        const radius = TREE_FULL_RADIUS * scale * (STUMP_DRAW_FRACTION + (1 - STUMP_DRAW_FRACTION) * timber);
+        const stripped = timber < STUMP_DRAW_THRESHOLD;
+        const color = stripped
+          ? hslToHex(STUMP_HUE, STUMP_SATURATION, STUMP_LIGHTNESS)
+          : hslToHex(profile.hue, profile.saturation, profile.lightness + food * 0.16);
+        context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+        // A canopy, not a square, so a forest reads as a forest at a glance.
         context.beginPath();
-        context.arc(cx, cy, size * 0.5, 0, Math.PI * 2);
+        context.arc(cx, cy, radius, 0, Math.PI * 2);
         context.fill();
       } else {
+        // Grass and bush are drawn at increasing footprint so a meadow reads
+        // differently from scrub.
+        const size = (species === PlantSpecies.Bush ? 2 : 1) * scale;
+        const color = hslToHex(profile.hue, profile.saturation, profile.lightness + food * 0.16);
+        context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
         context.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
       }
+
       if (species === PlantSpecies.FoodPile) {
         context.fillStyle = 'rgba(255, 150, 90, 0.9)';
         context.fillRect(Math.round(cx - scale), Math.round(cy - scale), scale * 2, scale * 2);
@@ -790,6 +801,30 @@ function drawEffect(graphic: Graphics, effect: WorldEffect, progress: number): v
  * look like ground rather than like a spreadsheet.
  */
 const GROUND_SCALE = 4;
+
+/**
+ * Drawn radius of a tree with all its timber, in tiles.
+ *
+ * Trees were drawn at a fixed 1.5 tiles regardless of how much timber they had,
+ * which is why felling was invisible. This keeps the old look for an untouched
+ * tree and lets a stripped one shrink toward a stump.
+ */
+const TREE_FULL_RADIUS = 1.5;
+
+/** A felled tree draws at this fraction of its full radius. Not zero — a stump
+ * is still something you can see, and a logged stand should read as cut rather
+ * than as bare ground. */
+const STUMP_DRAW_FRACTION = 0.4;
+
+/** Timber fraction below which a tree is drawn as a stump. Mirrors
+ * `STUMP_TIMBER_FRACTION` in the simulation; the client cannot call that method,
+ * so the constant is repeated here rather than sent down the wire. */
+const STUMP_DRAW_THRESHOLD = 0.2;
+
+/** A felled tree draws as bare timber rather than foliage. */
+const STUMP_HUE = 0.08;
+const STUMP_SATURATION = 0.42;
+const STUMP_LIGHTNESS = 0.3;
 
 /** Paint the terrain into an offscreen canvas and upload it as a texture. */
 function buildTerrainTexture(terrain: TerrainData): Texture {

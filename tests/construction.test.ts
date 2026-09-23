@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { World, DEFAULT_WORLD_OPTIONS } from '../src/simulation/world';
 import { CARRY_CAPACITY, WOOD_PER_HUT } from '../src/simulation/entities/structure';
 import { PlantSpecies } from '../src/simulation/entities/plant';
-import { M } from '../src/simulation/brain/channels';
+import { M, S } from '../src/simulation/brain/channels';
+import { normalizeAngle } from '../src/simulation/entities/human';
 
 function makeWorld(seed = 'construction'): World {
   return new World({ ...DEFAULT_WORLD_OPTIONS, seed, initialHumans: 8, initialPredators: 0 });
@@ -215,4 +216,131 @@ describe('harvesting and building behaviour', () => {
     expect(stats.timber).toBeGreaterThan(0);
     expect(world.events.some((e) => e.kind === 'build')).toBe(true);
   }, 120000);
+});
+
+describe('forest exhaustion', () => {
+  it('felling strips timber and a grown tree becomes a stump', () => {
+    const world = makeWorld('eden');
+    // A *mature* tree, because a young one has little timber without anyone
+    // having touched it — which is exactly the trap the first version of this
+    // code fell into.
+    const index = world.plants.findIndex(
+      (p) => p.alive && p.species === PlantSpecies.Tree && p.growth > 0.9 && p.timber > 1,
+    );
+    expect(index).toBeGreaterThanOrEqual(0);
+    const tree = world.plants[index];
+
+    expect(tree.timberFraction()).toBeGreaterThan(0.8);
+    expect(tree.isStump()).toBe(false);
+
+    world.harvestWood(index, tree.timber);
+    expect(tree.timberFraction()).toBeCloseTo(0, 5);
+    expect(tree.isStump()).toBe(true);
+
+    // Regrowth is real, and slow: minutes of simulated time do not restore it.
+    for (let i = 0; i < 4000; i++) world.step();
+    expect(tree.timberFraction()).toBeGreaterThan(0);
+    expect(tree.timberFraction()).toBeLessThan(0.5);
+  });
+
+  it('a young tree is small, not a stump', () => {
+    const world = makeWorld('eden');
+    const young = world.plants.find(
+      (p) => p.alive && p.species === PlantSpecies.Tree && p.growth > 0.2 && p.growth < 0.6,
+    );
+    expect(young).toBeDefined();
+    // Low timber fraction, but nobody cut it — so it must not read as a stump.
+    expect(young!.timberFraction()).toBeLessThan(0.7);
+    expect(young!.isStump()).toBe(false);
+  });
+
+  it('only trees carry timber; nothing else can be a stump', () => {
+    const world = makeWorld('shrubs');
+    let checked = 0;
+    for (const plant of world.plants) {
+      if (plant.species === PlantSpecies.Tree) continue;
+      expect(plant.timberFraction()).toBe(0);
+      expect(plant.isStump()).toBe(false);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('writes the directional timber channels the network needs', () => {
+    // Regression. `woodDir` and `buildDir` were computed and then never written
+    // into the sensory array, so these eight channels were permanently zero and
+    // the brain could not see where the trees or the building sites were.
+    const world = makeWorld('sensing');
+    const human = world.humans[0];
+    const index = nearestTree(world, human.x, human.y);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const tree = world.plants[index];
+
+    human.x = tree.x + 3;
+    human.y = tree.y;
+    human.sense(world);
+
+    const timber =
+      human.sensors[S.woodFront] +
+      human.sensors[S.woodRight] +
+      human.sensors[S.woodBack] +
+      human.sensors[S.woodLeft];
+    expect(timber).toBeGreaterThan(0);
+  });
+
+  it('prefers a rich tree over a nearer stripped one', () => {
+    // The behaviour that makes the forest finite in practice: once the trees
+    // around the village are cut, the network must look further out instead of
+    // returning to the stump beside it.
+    const world = makeWorld('woodchoice');
+
+    // Find a human with at least two trees in sensing range, so there is an
+    // actual choice to get wrong.
+    let human = world.humans[0];
+    let candidates: Array<{ plant: (typeof world.plants)[number]; i: number; d: number }> = [];
+    for (const candidate of world.humans) {
+      const found = world.plants
+        .map((plant, i) => ({ plant, i }))
+        .filter(({ plant }) => plant.alive && plant.species === PlantSpecies.Tree && plant.timber > 0.8)
+        .map(({ plant, i }) => ({ plant, i, d: Math.hypot(plant.x - candidate.x, plant.y - candidate.y) }))
+        .filter((c) => c.d > 0.6 && c.d < 13)
+        .sort((a, b) => a.d - b.d);
+      if (found.length >= 2) {
+        human = candidate;
+        candidates = found;
+        break;
+      }
+    }
+
+    expect(candidates.length).toBeGreaterThanOrEqual(2);
+    const near = candidates[0];
+    const far = candidates[1];
+
+    // Strip the nearer tree bare. It is now below the sensing threshold.
+    world.harvestWood(near.i, 999);
+    expect(near.plant.timber).toBeCloseTo(0, 5);
+
+    human.sense(world);
+
+    const channelOf = (dx: number, dy: number): number => {
+      const relative = normalizeAngle(Math.atan2(dy, dx) - human.heading);
+      const forward = Math.cos(relative);
+      const lateral = Math.sin(relative);
+      if (Math.abs(forward) >= Math.abs(lateral)) return forward >= 0 ? 0 : 2;
+      return lateral >= 0 ? 1 : 3;
+    };
+
+    const timber = [
+      human.sensors[S.woodFront],
+      human.sensors[S.woodRight],
+      human.sensors[S.woodBack],
+      human.sensors[S.woodLeft],
+    ];
+    const strongest = timber.indexOf(Math.max(...timber));
+    const strippedChannel = channelOf(near.plant.x - human.x, near.plant.y - human.y);
+
+    // The strongest direction must not be the tree that has nothing left.
+    expect(strongest).not.toBe(strippedChannel);
+    expect(timber[strongest]).toBeGreaterThan(0);
+  });
 });

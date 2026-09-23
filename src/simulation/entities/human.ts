@@ -437,6 +437,7 @@ export class Human {
     let bestWoodDy = 0;
     let bestWoodDist = Infinity;
     let bestWoodTimber = 0;
+    let bestWoodScore = 0;
     // One pass over the nearby plants feeds both the food and the timber senses.
     //
     // These were separate queries at first, which doubled the most expensive loop
@@ -458,11 +459,21 @@ export class Human {
         bestFoodDy = dy;
         bestFoodValue = plant.food;
       }
-      if (plant.timber > 0.05 && dist < bestWoodDist) {
-        bestWoodDist = dist;
-        bestWoodDx = dx;
-        bestWoodDy = dy;
-        bestWoodTimber = plant.timber;
+      if (plant.timber > 0.05) {
+        // Choose the tree by *value*, not by proximity. Selecting the nearest
+        // one meant that once the trees around the village were stripped, the
+        // network kept walking to the nearest stump instead of the untouched
+        // stand a few tiles further on — so a logged area stayed logged and the
+        // settlement never moved outward. Dividing by distance keeps a rich tree
+        // reachable without letting it win from across the map.
+        const score = Math.min(1, plant.timber / 1.5) / (dist + 1);
+        if (score > bestWoodScore) {
+          bestWoodScore = score;
+          bestWoodDist = dist;
+          bestWoodDx = dx;
+          bestWoodDy = dy;
+          bestWoodTimber = plant.timber;
+        }
       }
     }
     if (bestFoodDist < Infinity) {
@@ -578,6 +589,24 @@ export class Human {
       encodeDirection(nearestSiteDx, nearestSiteDy, this.heading, weight, buildDir);
     }
 
+    // Directional timber and build-site sensing.
+    //
+    // These eight channels were declared, computed into `woodDir`/`buildDir`
+    // and then never written into the sensory array — so the network saw only
+    // the scalar `woodCarried` and `buildNeed` channels and had no idea *where*
+    // the trees or the building site were. Huts still got built, but by
+    // wandering into a site rather than by steering toward one, which is why
+    // construction was slow and why a stripped stand never sent anyone looking
+    // further afield. Writing them is what makes the directional sensing the
+    // channel table already promises actually reach the brain.
+    s[S.woodFront] = clamp01(woodDir[0]);
+    s[S.woodRight] = clamp01(woodDir[1]);
+    s[S.woodBack] = clamp01(woodDir[2]);
+    s[S.woodLeft] = clamp01(woodDir[3]);
+    s[S.buildFront] = clamp01(buildDir[0]);
+    s[S.buildRight] = clamp01(buildDir[1]);
+    s[S.buildBack] = clamp01(buildDir[2]);
+    s[S.buildLeft] = clamp01(buildDir[3]);
     s[S.woodCarried] = clamp01(this.wood / CARRY_CAPACITY);
     s[S.buildNeed] = clamp01(siteNeed);
     s[S.shelter] = clamp01(this.shelterFactor(world));

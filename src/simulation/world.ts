@@ -1527,7 +1527,12 @@ export class World implements SimWorld {
         plant.x,
         plant.y,
         0,
-        plant.radius,
+        // For plants `size` carries the fraction of standing timber, not a
+        // radius: a felled tree draws small and brown and regrows visibly, so
+        // logging is legible in the world instead of only in the stats panel.
+        // Non-trees report zero, which the renderer ignores — they draw from
+        // their species profile.
+        plant.timberFraction(),
         profile.hue,
         profile.saturation,
         profile.lightness,
