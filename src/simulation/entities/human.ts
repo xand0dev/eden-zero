@@ -69,6 +69,52 @@ const TOUCH_RANGE = 0.95;
  */
 const VILLAGE_RADIUS = 26;
 
+/**
+ * How much further out the village may build for each structure already standing.
+ *
+ * A fixed radius meant a village could never actually grow: once the ring was
+ * full, every further hut landed on top of the last one. Letting the reach
+ * expand with the settlement is what turns a camp into something that spreads.
+ */
+const VILLAGE_GROWTH_PER_STRUCTURE = 1.8;
+
+/**
+ * A human standing within this distance of real timber may found a hut even
+ * beyond the village's reach.
+ *
+ * The forest is where the building material is, and S1 measured that in three of
+ * four worlds the founders start nowhere near it. Without this the settlement can
+ * only ever grow around its own centre, never toward the trees — which is the
+ * difference between a village getting bigger and a village reaching the forest.
+ */
+const FRONTIER_BUILD_RANGE = 14;
+
+/**
+ * How far beyond the village's own reach a hut may be founded, provided it is
+ * standing beside a structure that already exists.
+ *
+ * The first version of S2 let anyone build anywhere there was timber, and the
+ * measurement showed why that is wrong: 63 of 72 huts ended up outside the old
+ * radius with a maximum of 91 tiles, which is not a village growing, it is
+ * litter. Requiring a new hut to adjoin an existing one keeps the settlement
+ * connected while still letting it reach out toward the forest, one hut at a
+ * time.
+ */
+const VILLAGE_EXTENSION_RANGE = 16;
+
+/** The village's reach stops growing here, so a settlement has a size. */
+const MAX_VILLAGE_GROWTH = 24;
+
+/**
+ * Absolute limit on how far from the centre any hut may be founded.
+ *
+ * Without it the extension rule chains: each hut legitimises the next one
+ * sixteen tiles further out, and the settlement walks across the whole island
+ * one hut at a time. Measured at 88 tiles before this limit existed, on an
+ * island 176 wide — a settlement that has become a scattering.
+ */
+const ABSOLUTE_VILLAGE_LIMIT = 46;
+
 /** Duration of a mating event, in simulated seconds. */
 export const MATING_DURATION = 7;
 /**
@@ -980,6 +1026,21 @@ export class Human {
    * about construction in the whole simulation — who builds, when, and how much
    * is entirely up to each individual's network.
    */
+  /**
+   * Whether there is real standing timber within founding distance.
+   *
+   * Lets a human start a hut out at the tree line instead of only around the
+   * village centre, so the settlement grows toward its building material.
+   */
+  private standingInTimber(world: SimWorld): boolean {
+    const count = world.queryPlants(this.x, this.y, FRONTIER_BUILD_RANGE, this.scratch);
+    for (let i = 0; i < count; i++) {
+      const plant = world.plants[this.scratch[i]];
+      if (plant && plant.timber > 0.5) return true;
+    }
+    return false;
+  }
+
   private tryBuild(world: SimWorld): void {
     if (this.wood <= 0) return;
     if (world.tick - this.lastBuildTick < BUILD_INTERVAL_TICKS) return;
@@ -999,11 +1060,28 @@ export class Human {
     }
 
     if (bestIndex < 0) {
-      // No site within reach — found one, but only inside the village.
+      // No site within reach — found one, but only within the village's current
+      // reach. That reach grows with the settlement, and a human standing in
+      // timber may found a hut out at the tree line regardless.
       const centre = world.settlementCentre;
       if (!centre) return;
       const distanceHome = Math.hypot(this.x - centre.x, this.y - centre.y);
-      if (distanceHome > VILLAGE_RADIUS) return;
+      const reach =
+        VILLAGE_RADIUS + Math.min(MAX_VILLAGE_GROWTH, world.structures.length * VILLAGE_GROWTH_PER_STRUCTURE);
+      const withinReach = distanceHome <= reach;
+
+      // Beyond the village's own reach, a hut may still be founded as a
+      // continuation of it: beside a structure that already stands, and standing
+      // in timber. Each new hut has to adjoin the last, so the settlement reaches
+      // out toward the forest as a connected edge rather than scattering single
+      // huts across the island.
+      const extension =
+        !withinReach &&
+        distanceHome <= ABSOLUTE_VILLAGE_LIMIT &&
+        world.queryStructures(this.x, this.y, VILLAGE_EXTENSION_RANGE, this.scratch) > 0 &&
+        this.standingInTimber(world);
+
+      if (!withinReach && !extension) return;
       const founded = world.foundStructure(this.x, this.y, this);
       if (!founded) return;
       return;
