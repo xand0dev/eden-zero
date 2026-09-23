@@ -576,6 +576,17 @@ input[type='range'] {
   border-radius: 0;
 }
 
+.brain-legend {
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: #6d7d8c;
+}
+
+.brain-legend span {
+  color: #b9c8d6;
+}
+
 .brain-hint {
   position: fixed;
   left: 50%;

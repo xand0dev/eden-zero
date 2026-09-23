@@ -83,6 +83,29 @@ const expanded = await page.evaluate(() => {
 });
 console.log('expand button clicked: ' + expanded);
 await page.waitForTimeout(2500);
+
+// Hover a neuron so the read-out is captured.
+const box = await page.evaluate(() => {
+  const canvas = document.querySelector('canvas.brain-canvas');
+  const rect = canvas.getBoundingClientRect();
+  return { x: rect.left, y: rect.top, w: rect.width, h: rect.height };
+});
+// Sweep a few points until one lands on a neuron.
+let found = null;
+for (const fx of [0.12, 0.2, 0.28, 0.36, 0.5]) {
+  for (const fy of [0.3, 0.45, 0.6]) {
+    await page.mouse.move(box.x + box.w * fx, box.y + box.h * fy);
+    await page.waitForTimeout(160);
+    const label = await page.evaluate(() => {
+      const canvas = document.querySelector('canvas.brain-canvas');
+      return canvas.style.cursor === 'crosshair';
+    });
+    if (label) { found = { fx, fy }; break; }
+  }
+  if (found) break;
+}
+console.log('hover landed on a neuron: ' + JSON.stringify(found));
+
 await page.screenshot({ path: '/tmp/eden-brain-expanded.png' });
 console.log('screenshot: /tmp/eden-brain-expanded.png');
 
