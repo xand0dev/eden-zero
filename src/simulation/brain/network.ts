@@ -248,6 +248,54 @@ const INNATE_PRIORS: ReadonlyArray<readonly [number, number, number]> = [
   [S.energy, MOTOR(M.harvest), 0.3],
   [S.pain, MOTOR(M.harvest), -0.8],
   [S.pain, MOTOR(M.build), -0.6],
+  // --- v2: agriculture and irrigation -----------------------------------
+  //
+  // The scaffolding the three new motors need. Without a prior, `plant`, `tend`
+  // and `dig` start with random weights and never fire — the same cold-start
+  // problem mate search had, and the same fix: make the behaviour loud enough to
+  // clear the action gate, then let learning reshape it.
+  //
+  // Deliberately weaker than the survival drives, like the construction priors
+  // above. A hungry human eats; it does not irrigate.
+  //
+  // Walking toward what you can see.
+  // Steering weights are deliberately low. These channels are *added* to the
+  // food, water and build gradients rather than replacing them, and the first
+  // values were high enough that the sum pulled harder than any single survival
+  // drive — the population declined while the fields flourished. A new sense
+  // must not outshout the ones that keep the animal alive.
+  [S.fieldFront, MOTOR(M.moveFwd), 0.32],
+  [S.fieldRight, MOTOR(M.turnRight), 0.22],
+  [S.fieldLeft, MOTOR(M.turnLeft), 0.22],
+  [S.canalFront, MOTOR(M.moveFwd), 0.26],
+  [S.canalRight, MOTOR(M.turnRight), 0.18],
+  [S.canalLeft, MOTOR(M.turnLeft), 0.18],
+  [S.forestFront, MOTOR(M.moveFwd), 0.24],
+  [S.forestRight, MOTOR(M.turnRight), 0.16],
+  [S.forestLeft, MOTOR(M.turnLeft), 0.16],
+  // Sowing: driven by a field that actually wants planting, and nothing else.
+  //
+  // The first version also wired `seeds -> plant`, and `seeds` is a constant, so
+  // that prior was permanently live. The settlement farmed itself to death:
+  // population hit zero while the fields were immaculate. A behaviour that is
+  // always available has to be gated on a need, not on a standing capability.
+  [S.fieldNeed, MOTOR(M.plant), 1.4],
+  // Bringing in a ripe crop.
+  [S.cropReady, MOTOR(M.tend), 1.7],
+  [S.fieldGrowth, MOTOR(M.tend), 0.5],
+  // Digging: ground that is drying out with no canal to it yet.
+  [S.irrigationNeed, MOTOR(M.dig), 1.6],
+  [S.soilMoisture, MOTOR(M.dig), -0.8],
+  // Hunger and fatigue suppress farm work, and harder than they suppress
+  // building. Farming is the most optional thing in the world: a starving
+  // settlement must forage, not irrigate. The first values were too gentle and
+  // the population died with a perfect canal network.
+  [S.hunger, MOTOR(M.plant), -1.6],
+  [S.hunger, MOTOR(M.tend), -1.6],
+  [S.hunger, MOTOR(M.dig), -1.8],
+  [S.fatigue, MOTOR(M.plant), -1.0],
+  [S.fatigue, MOTOR(M.tend), -1.0],
+  [S.fatigue, MOTOR(M.dig), -1.4],
   // NOTE: there is deliberately no `noise -> motor` prior here. Wiring one
   // noise channel to both `turn-left` and `turn-right` with opposite signs
   // would cancel itself out exactly. Instead the noise channel projects into

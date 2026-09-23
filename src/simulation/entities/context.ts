@@ -4,6 +4,7 @@ import type { Human } from './human';
 import type { Predator } from './predator';
 import type { Plant } from './plant';
 import type { Structure } from './structure';
+import type { Canal, Field } from './cultivation';
 import type { EventKind } from '../../shared/types';
 
 /**
@@ -30,6 +31,8 @@ export interface SimWorld {
   predators: Predator[];
   plants: Plant[];
   structures: Structure[];
+  fields: Field[];
+  canals: Canal[];
 
   /** World-level deterministic PRNG. */
   random(): number;
@@ -42,6 +45,28 @@ export interface SimWorld {
   queryPredators(x: number, y: number, radius: number, out: number[]): number;
   queryPlants(x: number, y: number, radius: number, out: number[]): number;
   queryStructures(x: number, y: number, radius: number, out: number[]): number;
+  queryFields(x: number, y: number, radius: number, out: number[]): number;
+  queryCanals(x: number, y: number, radius: number, out: number[]): number;
+
+  /** Distance in tiles to the nearest fresh water, saturated at 255. */
+  waterDistanceAt(x: number, y: number): number;
+
+  /**
+   * Nearest standing forest within `radius`, as an offset from (x, y).
+   *
+   * Returns null when there is no woodland in range. This is what lets a
+   * settlement grow toward the trees instead of only around its own centre.
+   */
+  nearestForest(x: number, y: number, radius: number): { dx: number; dy: number; distance: number } | null;
+
+  /** Break ground for a new field. Returns null if the ground will not take one. */
+  foundField(x: number, y: number, worker: Human): Field | null;
+  sowField(fieldIndex: number, worker: Human): boolean;
+  harvestField(fieldIndex: number, worker: Human): boolean;
+
+  /** Stake out a length of canal. Returns null unless it adjoins water or canal. */
+  foundCanal(x: number, y: number, worker: Human): Canal | null;
+  digCanal(canalIndex: number, worker: Human): boolean;
 
   ambientTemperatureAt(x: number, y: number): number;
 

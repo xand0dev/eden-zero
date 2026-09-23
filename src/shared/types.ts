@@ -154,6 +154,10 @@ export interface WorldSnapshot {
   metrics: DevMetrics;
   /** Huts, finished and under construction. Small enough to send whole. */
   structures: StructureView[];
+  /** Fields under cultivation, sent whole for the same reason. */
+  fields: FieldView[];
+  /** Dug canal lengths. */
+  canals: CanalView[];
 }
 
 /**
@@ -171,6 +175,27 @@ export interface HouseStats {
   deepestGeneration: number;
   /** population x 100 + deepestGeneration x 25. */
   score: number;
+}
+
+/** A field under cultivation, as the client sees it. */
+export interface FieldView {
+  id: number;
+  x: number;
+  y: number;
+  /** 0 fallow, 1 growing, 2 ripe. */
+  stage: number;
+  growth: number;
+  moisture: number;
+}
+
+/** One dug length of canal. */
+export interface CanalView {
+  id: number;
+  x: number;
+  y: number;
+  progress: number;
+  complete: boolean;
+  flowing: boolean;
 }
 
 export interface StructureView {

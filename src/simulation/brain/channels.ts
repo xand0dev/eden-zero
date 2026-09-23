@@ -5,27 +5,34 @@
  * regions. It is NOT the FlyWire connectome and does NOT attempt to reproduce
  * ~139k neurons — see README for the honesty statement.
  *
- *   sensory (44)
+ *   sensory (64)
  *        |
- *   local processing (64)
+ *   local processing (80)
  *        |
- *   recurrent interneurons (132)
+ *   recurrent interneurons (160)
  *        |
- *   internal-state / neuromodulatory (16)
+ *   internal-state / neuromodulatory (20)
  *        |
- *   motor (14)
+ *   motor (17)
+ *
+ * v2 grew this from 270 neurons. The additions are the agriculture and
+ * irrigation senses and the three motors that act on them. Everything that
+ * existed in v1 kept its index and the new channels were appended rather than
+ * inserted, so what is new is visible at a glance. Changing these numbers
+ * invalidates every save, which is why it was done once — see
+ * docs/CIVILISATION.md.
  */
 
-export const SENSORY_COUNT = 44;
-export const LOCAL_START = 44;
-export const LOCAL_COUNT = 64;
-export const RECURRENT_START = 108;
-export const RECURRENT_COUNT = 132;
-export const MOD_START = 240;
-export const MOD_COUNT = 16;
-export const MOTOR_START = 256;
-export const MOTOR_COUNT = 14;
-export const NEURON_COUNT = 270;
+export const SENSORY_COUNT = 64;
+export const LOCAL_START = 64;
+export const LOCAL_COUNT = 80;
+export const RECURRENT_START = 144;
+export const RECURRENT_COUNT = 160;
+export const MOD_START = 304;
+export const MOD_COUNT = 20;
+export const MOTOR_START = 324;
+export const MOTOR_COUNT = 17;
+export const NEURON_COUNT = 341;
 
 /**
  * Neuron regions. Declared as a frozen object rather than a `const enum`
@@ -102,6 +109,27 @@ export const SENSORY_NAMES = [
   'buildNeed',
   'shelter',
   'dayPhase',
+  // --- v2: agriculture and irrigation -------------------------------------
+  'forest.front',
+  'forest.right',
+  'forest.back',
+  'forest.left',
+  'field.front',
+  'field.right',
+  'field.back',
+  'field.left',
+  'canal.front',
+  'canal.right',
+  'canal.back',
+  'canal.left',
+  'soilMoisture',
+  'fieldNeed',
+  'fieldGrowth',
+  'irrigationNeed',
+  'seeds',
+  'cropReady',
+  'storedFood',
+  'settlementStage',
 ] as const;
 
 /** Index of each named sensory channel. */
@@ -150,6 +178,26 @@ export const S = {
   buildNeed: 41,
   shelter: 42,
   dayPhase: 43,
+  forestFront: 44,
+  forestRight: 45,
+  forestBack: 46,
+  forestLeft: 47,
+  fieldFront: 48,
+  fieldRight: 49,
+  fieldBack: 50,
+  fieldLeft: 51,
+  canalFront: 52,
+  canalRight: 53,
+  canalBack: 54,
+  canalLeft: 55,
+  soilMoisture: 56,
+  fieldNeed: 57,
+  fieldGrowth: 58,
+  irrigationNeed: 59,
+  seeds: 60,
+  cropReady: 61,
+  storedFood: 62,
+  settlementStage: 63,
 } as const;
 
 /** Motor outputs. Everything a human can *do* is one of these. */
@@ -168,6 +216,10 @@ export const MOTOR_NAMES = [
   'interact',
   'harvest',
   'build',
+  // --- v2 ---------------------------------------------------------------
+  'plant',
+  'tend',
+  'dig',
 ] as const;
 
 export const M = {
@@ -185,6 +237,9 @@ export const M = {
   interact: 11,
   harvest: 12,
   build: 13,
+  plant: 14,
+  tend: 15,
+  dig: 16,
 } as const;
 
 export type MotorName = (typeof MOTOR_NAMES)[number];

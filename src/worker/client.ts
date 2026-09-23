@@ -1,7 +1,9 @@
 import type {
   BrainView,
+  CanalView,
   DevMetrics,
   ExplanationView,
+  FieldView,
   HumanDetail,
   StructureView,
   TreeNode,
@@ -54,6 +56,8 @@ export interface SimState {
   events: WorldEvent[];
   effects: WorldEffect[];
   structures: StructureView[];
+  fields: FieldView[];
+  canals: CanalView[];
   metrics: DevMetrics;
   selectedId: number | null;
   detail: HumanDetail | null;
@@ -138,6 +142,8 @@ export class SimClient {
     events: [],
     effects: [],
     structures: [],
+    fields: [],
+    canals: [],
     metrics: DEFAULT_METRICS,
     selectedId: null,
     detail: null,
@@ -340,6 +346,8 @@ export class SimClient {
     events: WorldEvent[];
     effects: WorldEffect[];
     structures: StructureView[];
+    fields: FieldView[];
+    canals: CanalView[];
     paused: boolean;
     speed: number;
     metrics: DevMetrics;
@@ -362,6 +370,8 @@ export class SimClient {
       events: snapshot.events,
       effects: snapshot.effects,
       structures: snapshot.structures,
+      fields: snapshot.fields,
+      canals: snapshot.canals,
       paused: snapshot.paused,
       speed: snapshot.speed,
       metrics: {
@@ -410,6 +420,8 @@ export class SimClient {
           events: message.events,
           effects: message.effects,
           structures: message.structures,
+          fields: message.fields,
+          canals: message.canals,
           paused: message.paused,
           speed: message.speed,
           metrics: message.metrics,

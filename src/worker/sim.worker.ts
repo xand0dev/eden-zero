@@ -194,6 +194,8 @@ function sendSnapshot(force: boolean): void {
       events: snapshot.events,
       effects: snapshot.effects,
       structures: snapshot.structures,
+      fields: snapshot.fields,
+      canals: snapshot.canals,
       metrics: snapshot.metrics,
       paused,
       speed,

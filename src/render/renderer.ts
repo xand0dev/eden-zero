@@ -7,7 +7,7 @@ import { StructureSprite } from './structure';
 import { interpolatePose, smoothInterval, snapshotAlpha } from './interpolate';
 import { TILE_NAMES, type TerrainData } from '../simulation/environment/terrain';
 import { PLANT_SPECIES_NAMES, PlantSpecies, SPECIES_PROFILES } from '../simulation/entities/plant';
-import type { StructureView, WorldEffect } from '../shared/types';
+import type { CanalView, FieldView, StructureView, WorldEffect } from '../shared/types';
 
 /**
  * PixiJS world renderer.
@@ -64,6 +64,14 @@ export class WorldRenderer {
    */
   private readonly structureLayer = new Container();
   private readonly structures = new Map<number, StructureSprite>();
+  /**
+   * Fields and canals, redrawn each snapshot rather than pooled.
+   *
+   * A field changes appearance as it ripens and a canal as it is dug, and there
+   * are tens of them rather than thousands — pooling would be more code for no
+   * gain.
+   */
+  private readonly cultivationLayer = new Container();
   private readonly entityLayer = new Container();
   private readonly effectLayer = new Container();
 
@@ -151,7 +159,15 @@ export class WorldRenderer {
     });
     this.resizeObserver.observe(container);
 
-    this.root.addChild(this.terrainLayer, this.plantLayer, this.structureLayer, this.entityLayer, this.effectLayer);
+    // Fields and canals sit on the ground, under the huts and the inhabitants.
+    this.root.addChild(
+      this.terrainLayer,
+      this.plantLayer,
+      this.cultivationLayer,
+      this.structureLayer,
+      this.entityLayer,
+      this.effectLayer,
+    );
     // The selection ring lives in world space (inside `root`); the day/night
     // wash is a screen-space overlay and must NOT inherit the camera transform.
     this.root.addChild(this.selectionRing);
@@ -487,6 +503,47 @@ export class WorldRenderer {
       if (seen.has(id)) continue;
       sprite.destroy();
       this.structures.delete(id);
+    }
+  }
+
+  /**
+   * Draw the fields and the canals feeding them.
+   *
+   * Colour carries the state rather than a label: bare earth is brown, a growing
+   * crop greens as it fills out, and a ripe one is gold. A canal is grey until it
+   * is dug through and blue once water actually reaches it, which is the visual
+   * payoff for a line of work that takes a while.
+   */
+  setCultivation(fields: FieldView[], canals: CanalView[]): void {
+    for (const child of this.cultivationLayer.removeChildren()) child.destroy();
+
+    // Canals first, so a field drawn beside one sits on top of it.
+    for (const canal of canals) {
+      const graphic = new Graphics();
+      const size = canal.complete ? 1.6 : 1.1;
+      const color = canal.flowing ? 0x2f7fd0 : canal.complete ? 0x53707f : 0x5a4632;
+      graphic.rect(canal.x - size / 2, canal.y - size / 2, size, size).fill({ color, alpha: 0.9 });
+      this.cultivationLayer.addChild(graphic);
+    }
+
+    for (const field of fields) {
+      const graphic = new Graphics();
+      const size = 2.8;
+      let color: number;
+      if (field.stage === 2) color = 0xd8b23c;
+      else if (field.stage === 1) color = 0x4f8a34;
+      else color = 0x6b5636;
+      const alpha = field.stage === 1 ? 0.5 + 0.4 * field.growth : 0.72;
+      graphic.rect(field.x - size / 2, field.y - size / 2, size, size).fill({ color, alpha });
+
+      // Dry ground gets a rim, so a field that needs water reads as needing
+      // water rather than as merely being a field.
+      if (field.moisture < 0.3) {
+        graphic
+          .rect(field.x - size / 2, field.y - size / 2, size, size)
+          .stroke({ color: 0xc9a227, width: 0.22, alpha: 0.9 });
+      }
+      this.cultivationLayer.addChild(graphic);
     }
   }
 

@@ -1,12 +1,21 @@
 import { Rng } from './rng';
-import { DT, MAX_EVENTS, MAX_PLANTS, MAX_POPULATION, MAX_PREDATORS, MAX_STRUCTURES, SPATIAL_CELL, WORLD_H, WORLD_W } from '../shared/constants';
+import { DT, MAX_CANALS, MAX_EVENTS, MAX_FIELDS, MAX_PLANTS, MAX_POPULATION, MAX_PREDATORS, MAX_STRUCTURES, SPATIAL_CELL, WORLD_H, WORLD_W } from '../shared/constants';
 import { SpatialGrid } from './spatial/grid';
-import { generateTerrain, nearestWalkable, computeWaterDistance, type TerrainData } from './environment/terrain';
+import { generateTerrain, nearestWalkable, computeWaterDistance, tileAt, waterDistanceAt, Tile, type TerrainData } from './environment/terrain';
 import { ambientTemperature, createClimate, updateClimate, type Climate } from './environment/climate';
 import { Human, MATING_DURATION, MATING_REFRACTORY } from './entities/human';
 import { Predator } from './entities/predator';
 import { Plant, PlantSpecies, SPECIES_PROFILES } from './entities/plant';
 import { Structure, WOOD_PER_HUT, type StructureData } from './entities/structure';
+import {
+  CANAL_REACH,
+  CANAL_SOURCE_RANGE,
+  Canal,
+  Field,
+  FIELD_YIELD,
+  type CanalData,
+  type FieldData,
+} from './entities/cultivation';
 import type { HouseStats } from '../shared/types';
 import type { SimWorld } from './entities/context';
 import { cloneGenome, randomGenome, geneDef, sanitizeGenome, type GeneKey, type Genome } from './genetics/genome';
@@ -126,6 +135,18 @@ export class World implements SimWorld {
    */
   readonly structures: Structure[] = [];
 
+  /**
+   * Fields under cultivation.
+   *
+   * The second thing in the world that persists. A field is a place the
+   * settlement returns to: sown, ripened, harvested, and watered by a canal if
+   * anyone dug one.
+   */
+  readonly fields: Field[] = [];
+
+  /** Dug channels carrying water from the river to the fields. */
+  readonly canals: Canal[] = [];
+
   /** Completed huts. Maintained incrementally so stats stay cheap. */
   private huts = 0;
 
@@ -148,6 +169,8 @@ export class World implements SimWorld {
   private predatorGrid: SpatialGrid;
   private plantGrid: SpatialGrid;
   private structureGrid: SpatialGrid;
+  private fieldGrid: SpatialGrid;
+  private canalGrid: SpatialGrid;
 
   /** Lifetime counters that must survive entity death. */
   births = 0;
@@ -158,6 +181,8 @@ export class World implements SimWorld {
   private readonly scratchA: number[] = [];
   private readonly scratchB: number[] = [];
   private readonly structureScratch: number[] = [];
+  private readonly fieldScratch: number[] = [];
+  private readonly canalScratch: number[] = [];
 
   constructor(options: WorldOptions) {
     this.options = options;
@@ -171,6 +196,8 @@ export class World implements SimWorld {
     this.predatorGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
     this.plantGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
     this.structureGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
+    this.fieldGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
+    this.canalGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
 
     this.seedPlants(options.plantDensity);
     this.seedFounders(options.initialHumans);
@@ -395,6 +422,187 @@ export class World implements SimWorld {
     return plant.takeTimber(amount);
   }
 
+  // ---------------------------------------------------------------------
+  // Cultivation
+  // ---------------------------------------------------------------------
+
+  /**
+   * Whether water reaches a point.
+   *
+   * True beside open water, or beside a canal that is itself carrying water. A
+   * field uses this to decide whether to grow or to dry out.
+   */
+  private waterAt(x: number, y: number): boolean {
+    if (waterDistanceAt(this.terrain, this.waterDistance, x, y) <= CANAL_SOURCE_RANGE) return true;
+    const count = this.queryCanals(x, y, CANAL_REACH, this.canalScratch);
+    for (let i = 0; i < count; i++) {
+      if (this.canals[this.canalScratch[i]]?.flowing) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Advance every field and work out which canals are actually carrying water.
+   *
+   * A canal is live if it sits close enough to the river, or if it touches
+   * another canal that is already live. Running the check twice lets a chain
+   * propagate along its own length within one tick instead of taking one tick
+   * per length, which matters when a canal is twenty tiles long.
+   */
+  updateCultivation(): void {
+    for (const field of this.fields) field.update(DT, this.waterAt(field.x, field.y));
+
+    for (const canal of this.canals) canal.flowing = false;
+    for (let pass = 0; pass < 2; pass++) {
+      for (const canal of this.canals) {
+        if (!canal.complete || canal.flowing) continue;
+        if (waterDistanceAt(this.terrain, this.waterDistance, canal.x, canal.y) <= CANAL_SOURCE_RANGE) {
+          canal.flowing = true;
+          continue;
+        }
+        const count = this.queryCanals(canal.x, canal.y, 2.5, this.canalScratch);
+        for (let i = 0; i < count; i++) {
+          const other = this.canals[this.canalScratch[i]];
+          if (other && other !== canal && other.flowing) {
+            canal.flowing = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  queryFields(x: number, y: number, radius: number, out: number[]): number {
+    return this.fieldGrid.queryCircle(x, y, radius, out);
+  }
+
+  queryCanals(x: number, y: number, radius: number, out: number[]): number {
+    return this.canalGrid.queryCircle(x, y, radius, out);
+  }
+
+  waterDistanceAt(x: number, y: number): number {
+    return waterDistanceAt(this.terrain, this.waterDistance, x, y);
+  }
+
+  /**
+   * Nearest forest tile, found by sampling rings outward rather than by scanning
+   * every tile — a full scan per human per tick would be thousands of tiles each.
+   */
+  nearestForest(x: number, y: number, radius: number): { dx: number; dy: number; distance: number } | null {
+    const step = 2;
+    for (let r = step; r <= radius; r += step) {
+      const samples = Math.max(8, Math.round(r * 2));
+      for (let a = 0; a < samples; a++) {
+        const angle = (a / samples) * Math.PI * 2;
+        const px = x + Math.cos(angle) * r;
+        const py = y + Math.sin(angle) * r;
+        if (tileAt(this.terrain, px, py) !== Tile.Forest) continue;
+        const dx = px - x;
+        const dy = py - y;
+        return { dx, dy, distance: Math.hypot(dx, dy) };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Break new ground for a field.
+   *
+   * Only on grass, never in the forest and never on bare sand — a field is
+   * something a settlement does to ground it already cleared, and it should read
+   * as a clearing rather than as a patch in the middle of the woods.
+   */
+  foundField(x: number, y: number, worker: Human): Field | null {
+    if (this.fields.length >= MAX_FIELDS) return null;
+    if (tileAt(this.terrain, x, y) !== Tile.Grass) return null;
+    if (this.queryFields(x, y, 4.5, this.fieldScratch) > 0) return null;
+    const field = new Field(this.nextEntityId++, x, y);
+    this.fields.push(field);
+    this.fieldGrid.insert(this.fields.length - 1, x, y);
+    this.emitEvent('build', `${worker.name} broke ground on a new field.`, [worker.id]);
+    this.addEffect('build', x, y, 2.6, 1.8);
+    return field;
+  }
+
+  sowField(index: number, worker: Human): boolean {
+    const field = this.fields[index];
+    if (!field) return false;
+    if (!field.sow(this.tick, worker.name)) return false;
+    this.emitEvent('build', `${worker.name} sowed a field.`, [worker.id]);
+    this.addEffect('build', field.x, field.y, 1.8, 1.2);
+    return true;
+  }
+
+  /**
+   * Bring in a crop.
+   *
+   * The yield lands as a food pile beside the field rather than going straight
+   * into the harvester's belly: a harvest is a thing the whole settlement eats,
+   * and a pile is visible where a number is not.
+   */
+  harvestField(index: number, worker: Human): boolean {
+    const field = this.fields[index];
+    if (!field) return false;
+    if (!field.harvest(this.tick, worker.name)) return false;
+
+    if (this.plants.length < MAX_PLANTS) {
+      const pile = new Plant(
+        this.nextEntityId++,
+        PlantSpecies.FoodPile,
+        field.x + this.rng.range(-1.2, 1.2),
+        field.y + this.rng.range(-1.2, 1.2),
+        this.rng,
+        1,
+      );
+      pile.food = FIELD_YIELD;
+      this.plants.push(pile);
+      this.plantGrid.insert(this.plants.length - 1, pile.x, pile.y);
+    }
+
+    this.emitEvent('build', `${worker.name} brought in a crop.`, [worker.id]);
+    this.addEffect('build', field.x, field.y, 3.2, 2.2);
+    return true;
+  }
+
+  /**
+   * Stake out one length of canal.
+   *
+   * Lengths are dug one at a time and chained from the river outward, so the
+   * water arrives at the far end only once the whole line is finished. That is
+   * what makes the canal read as a piece of infrastructure rather than as a
+   * one-click upgrade.
+   */
+  foundCanal(x: number, y: number, worker: Human): Canal | null {
+    if (this.canals.length >= MAX_CANALS) return null;
+    const tile = tileAt(this.terrain, x, y);
+    if (tile === Tile.Water || tile === Tile.Rock) return null;
+    if (this.queryCanals(x, y, 2.2, this.canalScratch) > 0) return null;
+
+    // A length may only be started next to water or next to an existing canal,
+    // so the line has to be dug outward from the source rather than appearing
+    // wherever someone happens to stand.
+    const nearWater = waterDistanceAt(this.terrain, this.waterDistance, x, y) <= CANAL_SOURCE_RANGE + 2;
+    const nearCanal = this.queryCanals(x, y, 3.2, this.canalScratch) > 0;
+    if (!nearWater && !nearCanal) return null;
+
+    const canal = new Canal(this.nextEntityId++, x, y);
+    this.canals.push(canal);
+    this.canalGrid.insert(this.canals.length - 1, x, y);
+    this.emitEvent('build', `${worker.name} began digging a canal.`, [worker.id]);
+    return canal;
+  }
+
+  digCanal(index: number, worker: Human): boolean {
+    const canal = this.canals[index];
+    if (!canal) return false;
+    const finished = canal.dig(this.tick);
+    if (finished) {
+      this.emitEvent('build', `${worker.name} finished a length of canal.`, [worker.id]);
+      this.addEffect('build', canal.x, canal.y, 2.4, 1.6);
+    }
+    return true;
+  }
+
   contributeWood(structureIndex: number, amount: number, builder: Human): number {
     const site = this.structures[structureIndex];
     if (!site || site.complete) return 0;
@@ -515,6 +723,16 @@ export class World implements SimWorld {
       const site = this.structures[i];
       this.structureGrid.insert(i, site.x, site.y);
     }
+
+    this.fieldGrid.clear();
+    for (let i = 0; i < this.fields.length; i++) {
+      this.fieldGrid.insert(i, this.fields[i].x, this.fields[i].y);
+    }
+
+    this.canalGrid.clear();
+    for (let i = 0; i < this.canals.length; i++) {
+      this.canalGrid.insert(i, this.canals[i].x, this.canals[i].y);
+    }
   }
 
   step(): void {
@@ -561,6 +779,9 @@ export class World implements SimWorld {
 
     // --- plants -----------------------------------------------------------
     this.updatePlants();
+
+    // --- cultivation ------------------------------------------------------
+    this.updateCultivation();
 
     // --- reproduction -----------------------------------------------------
     this.resolveMating(DT);
@@ -1564,6 +1785,11 @@ export class World implements SimWorld {
       // Structures change only when one is founded or receives timber, so the
       // list is small (bounded by MAX_STRUCTURES) and cheap to send whole.
       structures: this.structures.map((s) => s.toData()),
+      // Fields and canals ride in the JSON header for the same reason: they
+      // change rarely, their count is bounded, and the binary payload is fully
+      // allocated already.
+      fields: this.fields.map((f) => f.toData()),
+      canals: this.canals.map((c) => c.toData()),
     };
   }
 
@@ -1583,6 +1809,8 @@ export class World implements SimWorld {
       predators: this.predators.map((p) => p.serialize()),
       plants: this.plants.map((p) => p.serialize()),
       structures: this.structures.map((st) => st.toData()),
+      fields: this.fields.map((f) => f.toData()),
+      canals: this.canals.map((c) => c.toData()),
       events: this.events.slice(-200),
       effects: this.effects,
       names: this.nameRegistry.snapshot(),
@@ -1641,6 +1869,12 @@ export class World implements SimWorld {
     }
     for (const raw of (data.structures as StructureData[]) ?? []) {
       world.structures.push(Structure.fromData(raw));
+    }
+    for (const raw of (data.fields as FieldData[]) ?? []) {
+      world.fields.push(Field.fromData(raw));
+    }
+    for (const raw of (data.canals as CanalData[]) ?? []) {
+      world.canals.push(Canal.fromData(raw));
     }
     world.huts = world.structures.reduce((sum, site) => sum + (site.complete ? 1 : 0), 0);
     for (const event of (data.events as WorldEvent[]) ?? []) world.events.push(event);

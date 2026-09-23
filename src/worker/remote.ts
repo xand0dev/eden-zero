@@ -15,7 +15,9 @@
 import { WireType, decodeFrame, viewOf } from '../shared/wire';
 import type { GodCommand } from '../shared/protocol';
 import type {
+  CanalView,
   DevMetrics,
+  FieldView,
   HouseStats,
   StructureView,
   WorldEffect,
@@ -37,6 +39,8 @@ export interface RemoteSnapshot {
   events: WorldEvent[];
   effects: WorldEffect[];
   structures: StructureView[];
+  fields: FieldView[];
+  canals: CanalView[];
   metrics: DevMetrics;
   /** Present only when the server is running a competitive match. */
   match: MatchView | null;
@@ -197,6 +201,8 @@ function decodeSnapshot(header: Record<string, unknown>, payload: Uint8Array): R
     events: (header.events as WorldEvent[]) ?? [],
     effects: (header.effects as WorldEffect[]) ?? [],
     structures: (header.structures as StructureView[]) ?? [],
+    fields: (header.fields as FieldView[]) ?? [],
+    canals: (header.canals as CanalView[]) ?? [],
     metrics: (header.metrics as DevMetrics) ?? ({} as DevMetrics),
     match: (header.match as MatchView | undefined) ?? null,
   };

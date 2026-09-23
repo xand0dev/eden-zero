@@ -207,6 +207,8 @@ export class Human {
   private lastBuildTick = -1000;
   /** Set by `act` so the renderer can show a chopping or building pose. */
   harvesting = false;
+  /** True on a tick spent sowing, reaping or digging, for the animation. */
+  farming = false;
   building = false;
   /** Where this human was born; used for the "am I home" sense. */
   homeX = 0;
@@ -260,6 +262,10 @@ export class Human {
   private readonly directionScratch = [
     new Float32Array(4),
     new Float32Array(4),
+    new Float32Array(4),
+    new Float32Array(4),
+    new Float32Array(4),
+    // v2: field, canal, forest
     new Float32Array(4),
     new Float32Array(4),
     new Float32Array(4),
@@ -431,11 +437,17 @@ export class Human {
     const threat = this.directionScratch[2];
     const woodDir = this.directionScratch[3];
     const buildDir = this.directionScratch[4];
+    const fieldDir = this.directionScratch[5];
+    const canalDir = this.directionScratch[6];
+    const forestDir = this.directionScratch[7];
     food.fill(0);
     conspecific.fill(0);
     threat.fill(0);
     woodDir.fill(0);
     buildDir.fill(0);
+    fieldDir.fill(0);
+    canalDir.fill(0);
+    forestDir.fill(0);
     let touch = 0;
 
     // Two different ranges for two different senses.
@@ -653,6 +665,96 @@ export class Human {
     s[S.buildRight] = clamp01(buildDir[1]);
     s[S.buildBack] = clamp01(buildDir[2]);
     s[S.buildLeft] = clamp01(buildDir[3]);
+    // --- v2: fields, canals, forest ---------------------------------------
+    let fieldNeed = 0;
+    let fieldGrowth = 0;
+    let irrigationNeed = 0;
+    let nearestFieldDist = Infinity;
+    let nearestFieldDx = 0;
+    let nearestFieldDy = 0;
+    const fieldScan = world.queryFields(this.x, this.y, buildRange, this.scratch);
+    for (let i = 0; i < fieldScan; i++) {
+      const field = world.fields[this.scratch[i]];
+      if (!field) continue;
+      const dx = field.x - this.x;
+      const dy = field.y - this.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > buildRange) continue;
+      if (dist < nearestFieldDist) {
+        nearestFieldDist = dist;
+        nearestFieldDx = dx;
+        nearestFieldDy = dy;
+        fieldNeed = field.needsSowing ? 1 : 0;
+        fieldGrowth = field.growthFraction;
+        // Ground that is drying out with no water reaching it wants a canal.
+        irrigationNeed = field.moisture < 0.35 ? 1 - field.moisture : 0;
+      }
+    }
+    if (nearestFieldDist < Infinity) {
+      const reach = nearestFieldDist > REACH ? 1 : 0.15;
+      const weight = (1 - nearestFieldDist / buildRange) * reach;
+      encodeDirection(nearestFieldDx, nearestFieldDy, this.heading, weight, fieldDir);
+    } else {
+      // No field anywhere in range: a mild signal that breaking ground is worth
+      // doing. Kept well below the value for a field that actually wants sowing,
+      // so tending something that exists always beats starting something new.
+      fieldNeed = 0.45;
+    }
+
+    let nearestCanalDist = Infinity;
+    let nearestCanalDx = 0;
+    let nearestCanalDy = 0;
+    const canalScan = world.queryCanals(this.x, this.y, buildRange, this.scratch);
+    for (let i = 0; i < canalScan; i++) {
+      const canal = world.canals[this.scratch[i]];
+      if (!canal || canal.complete) continue;
+      const dx = canal.x - this.x;
+      const dy = canal.y - this.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > buildRange) continue;
+      if (dist < nearestCanalDist) {
+        nearestCanalDist = dist;
+        nearestCanalDx = dx;
+        nearestCanalDy = dy;
+      }
+    }
+    if (nearestCanalDist < Infinity) {
+      const reach = nearestCanalDist > REACH ? 1 : 0.15;
+      const weight = (1 - nearestCanalDist / buildRange) * reach;
+      encodeDirection(nearestCanalDx, nearestCanalDy, this.heading, weight, canalDir);
+    }
+
+    const forest = world.nearestForest(this.x, this.y, buildRange);
+    if (forest) {
+      const reach = forest.distance > REACH ? 1 : 0.15;
+      const weight = (1 - forest.distance / buildRange) * reach;
+      encodeDirection(forest.dx, forest.dy, this.heading, weight, forestDir);
+    }
+
+    s[S.forestFront] = clamp01(forestDir[0]);
+    s[S.forestRight] = clamp01(forestDir[1]);
+    s[S.forestBack] = clamp01(forestDir[2]);
+    s[S.forestLeft] = clamp01(forestDir[3]);
+    s[S.fieldFront] = clamp01(fieldDir[0]);
+    s[S.fieldRight] = clamp01(fieldDir[1]);
+    s[S.fieldBack] = clamp01(fieldDir[2]);
+    s[S.fieldLeft] = clamp01(fieldDir[3]);
+    s[S.canalFront] = clamp01(canalDir[0]);
+    s[S.canalRight] = clamp01(canalDir[1]);
+    s[S.canalBack] = clamp01(canalDir[2]);
+    s[S.canalLeft] = clamp01(canalDir[3]);
+    // Soil moisture underfoot, so a human standing on dry ground can tell.
+    s[S.soilMoisture] = clamp01(1 - world.waterDistanceAt(this.x, this.y) / 12);
+    s[S.fieldNeed] = clamp01(fieldNeed);
+    s[S.fieldGrowth] = clamp01(fieldGrowth);
+    s[S.irrigationNeed] = clamp01(irrigationNeed);
+    // Seed is not a separate inventory: a settlement that has timber and fields
+    // has seed. Kept as its own channel so the brain can gate sowing on it.
+    s[S.seeds] = clamp01(0.7);
+    s[S.cropReady] = clamp01(fieldGrowth >= 1 ? 1 : 0);
+    s[S.storedFood] = 0;
+    s[S.settlementStage] = 0;
+
     s[S.woodCarried] = clamp01(this.wood / CARRY_CAPACITY);
     s[S.buildNeed] = clamp01(siteNeed);
     s[S.shelter] = clamp01(this.shelterFactor(world));
@@ -932,6 +1034,9 @@ export class Human {
     this.building = false;
     if (m[M.harvest] > 0.3) this.tryHarvest(world);
     if (m[M.build] > 0.3) this.tryBuild(world);
+    if (m[M.plant] > 0.3) this.trySow(world);
+    if (m[M.tend] > 0.3) this.tryTend(world);
+    if (m[M.dig] > 0.3) this.tryDig(world);
 
     // Survival-critical homeostatic override.
     //
@@ -1094,6 +1199,89 @@ export class Human {
     this.building = true;
     this.energy = clamp(this.energy - laid * 1.1, 0, 100);
     this.fatigue = clamp(this.fatigue + laid * 1.4, 0, 100);
+  }
+
+  /**
+   * Sow a field, or break new ground for one.
+   *
+   * Farming is only ever an *addition* to foraging, never a replacement: a
+   * settlement that cannot find wild food still eats. Fields are what turn a
+   * surplus into something worth staying for.
+   */
+  private trySow(world: SimWorld): void {
+    if (this.stage === LifeStage.Baby) return;
+
+    // Sow an existing field that is waiting.
+    const fieldCount = world.queryFields(this.x, this.y, REACH + 1.2, this.scratch);
+    for (let i = 0; i < fieldCount; i++) {
+      const index = this.scratch[i];
+      const field = world.fields[index];
+      if (!field || !field.needsSowing) continue;
+      if (world.sowField(index, this)) {
+        this.farming = true;
+        this.energy = clamp(this.energy - 1.4, 0, 100);
+        this.fatigue = clamp(this.fatigue + 2, 0, 100);
+        return;
+      }
+    }
+
+    // Otherwise break new ground, but only within the settlement's reach.
+    const centre = world.settlementCentre;
+    if (!centre) return;
+    if (Math.hypot(this.x - centre.x, this.y - centre.y) > ABSOLUTE_VILLAGE_LIMIT) return;
+    const founded = world.foundField(this.x, this.y, this);
+    if (founded) {
+      this.farming = true;
+      this.fatigue = clamp(this.fatigue + 2.5, 0, 100);
+    }
+  }
+
+  /** Bring in a ripe crop. */
+  private tryTend(world: SimWorld): void {
+    if (this.stage === LifeStage.Baby) return;
+    const count = world.queryFields(this.x, this.y, REACH + 1.2, this.scratch);
+    for (let i = 0; i < count; i++) {
+      const index = this.scratch[i];
+      const field = world.fields[index];
+      if (!field || !field.ripe) continue;
+      if (world.harvestField(index, this)) {
+        this.farming = true;
+        this.energy = clamp(this.energy - 1.8, 0, 100);
+        this.fatigue = clamp(this.fatigue + 2.4, 0, 100);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Dig, or start digging.
+   *
+   * A length under construction is finished first; otherwise a new one is staked
+   * out. The world refuses a length that does not adjoin water or an existing
+   * canal, so a line has to be dug outward from the river rather than appearing
+   * wherever someone happens to stand.
+   */
+  private tryDig(world: SimWorld): void {
+    if (this.stage === LifeStage.Baby) return;
+
+    const count = world.queryCanals(this.x, this.y, REACH + 1.2, this.scratch);
+    for (let i = 0; i < count; i++) {
+      const index = this.scratch[i];
+      const canal = world.canals[index];
+      if (!canal || canal.complete) continue;
+      if (world.digCanal(index, this)) {
+        this.farming = true;
+        this.energy = clamp(this.energy - 2.2, 0, 100);
+        this.fatigue = clamp(this.fatigue + 3, 0, 100);
+        return;
+      }
+    }
+
+    const centre = world.settlementCentre;
+    if (!centre) return;
+    if (Math.hypot(this.x - centre.x, this.y - centre.y) > ABSOLUTE_VILLAGE_LIMIT * 1.4) return;
+    const founded = world.foundCanal(this.x, this.y, this);
+    if (founded) this.farming = true;
   }
 
   /** How sheltered this human currently is: 1 beside a finished hut, else less. */

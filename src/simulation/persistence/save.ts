@@ -16,7 +16,15 @@
  */
 
 export const SAVE_FORMAT = 'eden0-save';
-export const SAVE_VERSION = 1;
+/**
+ * Save format version.
+ *
+ * 2 — the brain grew from 270 to 341 neurons for agriculture and irrigation.
+ * Every serialised weight array changed length, so a v1 save cannot be read by
+ * this build. That is a deliberate refusal rather than a silent misread: see the
+ * envelope check below, and docs/CIVILISATION.md for why migration was skipped.
+ */
+export const SAVE_VERSION = 2;
 
 export const AUTOSAVE_KEY = 'eden0.autosave.v1';
 export const MANUAL_SLOT_KEY = 'eden0.slot.v1';
@@ -64,10 +72,20 @@ export function unwrapSave(text: string): UnwrapResult {
   if (envelope.format !== SAVE_FORMAT) {
     return { ok: false, error: `Not an EDEN//0 save (format "${String(envelope.format)}").` };
   }
-  if (typeof envelope.version !== 'number' || envelope.version > SAVE_VERSION) {
+  // Any mismatch is refused, in either direction. This check used to reject only
+  // *newer* saves, which was fine while the format never changed — but v2 grew
+  // the brain from 270 to 341 neurons, so a v1 save would deserialise into
+  // arrays of the wrong length and produce a silently broken world. Refusing it
+  // with a readable message is the honest outcome; migrating it would mean
+  // padding every weight array, and the roadmap says why that was skipped.
+  if (typeof envelope.version !== 'number' || envelope.version !== SAVE_VERSION) {
+    const relation =
+      typeof envelope.version === 'number' && envelope.version > SAVE_VERSION ? 'newer' : 'older';
     return {
       ok: false,
-      error: `Save version ${String(envelope.version)} is newer than this build (${SAVE_VERSION}).`,
+      error:
+        `Save version ${String(envelope.version)} is ${relation} than this build (${SAVE_VERSION}). ` +
+        'The brain changed size, so old worlds cannot be read — start a new one.',
     };
   }
   if (!envelope.payload) return { ok: false, error: 'Save file contains no world payload.' };

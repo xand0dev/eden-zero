@@ -88,6 +88,10 @@ export function WorldScreen({
   }, [state.structures, state.tick]);
 
   useEffect(() => {
+    rendererRef.current?.setCultivation(state.fields, state.canals);
+  }, [state.fields, state.canals]);
+
+  useEffect(() => {
     rendererRef.current?.setLight(state.light);
   }, [state.light]);
 

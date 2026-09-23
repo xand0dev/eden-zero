@@ -69,6 +69,10 @@ export const MAX_PLANTS = 6000;
 export const MAX_PREDATORS = 400;
 /** Cap on built structures. A thriving village keeps building, but not forever. */
 export const MAX_STRUCTURES = 160;
+/** Fields a settlement may work at once. */
+export const MAX_FIELDS = 80;
+/** Canal lengths in the world. A canal from the river to the fields is a chain. */
+export const MAX_CANALS = 160;
 
 /** Event feed retention. */
 export const MAX_EVENTS = 400;
