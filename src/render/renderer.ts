@@ -8,6 +8,14 @@ import { interpolatePose, smoothInterval, snapshotAlpha } from './interpolate';
 import { TILE_NAMES, type TerrainData } from '../simulation/environment/terrain';
 import { PLANT_SPECIES_NAMES, PlantSpecies, SPECIES_PROFILES } from '../simulation/entities/plant';
 import type { CanalView, FieldView, StructureView, WorldEffect } from '../shared/types';
+import {
+  CULTIVATION_COLORS,
+  OUTLINE_WIDTH,
+  SHADOW_ALPHA,
+  SHADOW_COLOR,
+  TERRAIN_COLORS,
+  outlineOf,
+} from './style';
 
 /**
  * PixiJS world renderer.
@@ -22,14 +30,7 @@ import type { CanalView, FieldView, StructureView, WorldEffect } from '../shared
  *    conversion so the god tools can target the world by clicking.
  */
 
-const TERRAIN_COLORS: Record<number, [number, number, number]> = {
-  0: [22, 44, 74], // deep water
-  1: [38, 74, 104], // shallow
-  2: [140, 126, 92], // sand
-  3: [46, 62, 44], // grass
-  4: [32, 48, 36], // forest floor
-  5: [64, 62, 64], // rock
-};
+
 
 export interface Camera {
   x: number;
@@ -517,31 +518,44 @@ export class WorldRenderer {
   setCultivation(fields: FieldView[], canals: CanalView[]): void {
     for (const child of this.cultivationLayer.removeChildren()) child.destroy();
 
-    // Canals first, so a field drawn beside one sits on top of it.
+    // Canals first, so a field drawn beside one sits on top of it. Both get the
+    // same outline treatment as every other object, which is what stops them
+    // reading as flat coloured squares dropped on the terrain.
     for (const canal of canals) {
       const graphic = new Graphics();
       const size = canal.complete ? 1.6 : 1.1;
-      const color = canal.flowing ? 0x2f7fd0 : canal.complete ? 0x53707f : 0x5a4632;
-      graphic.rect(canal.x - size / 2, canal.y - size / 2, size, size).fill({ color, alpha: 0.9 });
+      const color = canal.flowing
+        ? CULTIVATION_COLORS.canalFlowing
+        : canal.complete
+          ? CULTIVATION_COLORS.canalDug
+          : CULTIVATION_COLORS.canalDry;
+      graphic
+        .roundRect(canal.x - size / 2, canal.y - size / 2, size, size, 0.2)
+        .fill({ color })
+        .stroke({ color: outlineOf(color, 0.45), width: OUTLINE_WIDTH });
       this.cultivationLayer.addChild(graphic);
     }
 
     for (const field of fields) {
       const graphic = new Graphics();
       const size = 2.8;
-      let color: number;
-      if (field.stage === 2) color = 0xd8b23c;
-      else if (field.stage === 1) color = 0x4f8a34;
-      else color = 0x6b5636;
-      const alpha = field.stage === 1 ? 0.5 + 0.4 * field.growth : 0.72;
-      graphic.rect(field.x - size / 2, field.y - size / 2, size, size).fill({ color, alpha });
+      const color =
+        field.stage === 2
+          ? CULTIVATION_COLORS.ripe
+          : field.stage === 1
+            ? CULTIVATION_COLORS.growing
+            : CULTIVATION_COLORS.fallow;
+      graphic
+        .roundRect(field.x - size / 2, field.y - size / 2, size, size, 0.3)
+        .fill({ color, alpha: field.stage === 1 ? 0.55 + 0.45 * field.growth : 0.85 })
+        .stroke({ color: outlineOf(color, 0.45), width: OUTLINE_WIDTH });
 
-      // Dry ground gets a rim, so a field that needs water reads as needing
-      // water rather than as merely being a field.
+      // Dry ground gets a warm rim, so a field that needs water reads as
+      // needing water rather than as merely being a field.
       if (field.moisture < 0.3) {
         graphic
-          .rect(field.x - size / 2, field.y - size / 2, size, size)
-          .stroke({ color: 0xc9a227, width: 0.22, alpha: 0.9 });
+          .roundRect(field.x - size / 2, field.y - size / 2, size, size, 0.3)
+          .stroke({ color: CULTIVATION_COLORS.dryRim, width: 0.16, alpha: 0.95 });
       }
       this.cultivationLayer.addChild(graphic);
     }
@@ -714,6 +728,15 @@ export class WorldRenderer {
         } else {
           // A canopy with a darker rim under a lighter crown. Drawn as one flat
           // disc a tree had no silhouette and simply merged into the meadow.
+          //
+          // The shadow is what puts the tree *on* the ground rather than in it,
+          // and it is the same shadow every other object casts.
+          context.globalAlpha = SHADOW_ALPHA;
+          context.fillStyle = `#${SHADOW_COLOR.toString(16).padStart(6, '0')}`;
+          context.beginPath();
+          context.ellipse(cx + radius * 0.2, cy + radius * 0.34, radius * 0.95, radius * 0.5, 0, 0, Math.PI * 2);
+          context.fill();
+          context.globalAlpha = 1;
           const rim = hslToHex(profile.hue, profile.saturation + 0.12, Math.max(0.07, profile.lightness - 0.13));
           const crown = hslToHex(profile.hue, profile.saturation, profile.lightness + 0.06 + food * 0.1);
           context.fillStyle = `#${rim.toString(16).padStart(6, '0')}`;
@@ -728,7 +751,13 @@ export class WorldRenderer {
       } else if (species === PlantSpecies.Bush) {
         // Scrub: a disc, darker than grass and larger, so it does not vanish
         // into what it grows among.
-        const size = 2.4 * scale;
+        const size = 0.8 * scale;
+        context.globalAlpha = SHADOW_ALPHA * 0.7;
+        context.fillStyle = `#${SHADOW_COLOR.toString(16).padStart(6, '0')}`;
+        context.beginPath();
+        context.ellipse(cx + size * 0.2, cy + size * 0.32, size, size * 0.5, 0, 0, Math.PI * 2);
+        context.fill();
+        context.globalAlpha = 1;
         const color = hslToHex(profile.hue, profile.saturation + 0.08, Math.max(0.1, profile.lightness - 0.03));
         context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
         context.beginPath();
@@ -742,10 +771,10 @@ export class WorldRenderer {
         // sheet. Half-transparent and much smaller, the ground shows through and
         // the vegetation reads as texture rather than as fill.
         const color = hslToHex(profile.hue, profile.saturation, profile.lightness + food * 0.16);
-        context.globalAlpha = 0.5;
+        context.globalAlpha = 0.34;
         context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
         context.beginPath();
-        context.arc(cx, cy, 1.6 * scale, 0, Math.PI * 2);
+        context.arc(cx, cy, 0.3 * scale, 0, Math.PI * 2);
         context.fill();
         context.globalAlpha = 1;
       }
@@ -879,20 +908,22 @@ function drawEffect(graphic: Graphics, effect: WorldEffect, progress: number): v
 /**
  * Pixels per tile in the offscreen terrain and vegetation canvases.
  *
- * One pixel per tile is cheap but reads as a grid of flat coloured squares. Four
- * gives enough resolution for per-pixel grain, which is what makes the ground
- * look like ground rather than like a spreadsheet.
+ * One pixel per tile is cheap but reads as a grid of flat coloured squares. Ten
+ * is what a tree needs: at four, a tree under a tile across was a three-pixel
+ * disc, which rasterised as a square and turned the forest into pixel noise.
+ * The ground grain is a bonus.
  */
-const GROUND_SCALE = 4;
+const GROUND_SCALE = 10;
 
 /**
  * Drawn radius of a tree with all its timber, in tiles.
  *
- * Trees were drawn at a fixed 1.5 tiles regardless of how much timber they had,
- * which is why felling was invisible. This keeps the old look for an untouched
- * tree and lets a stripped one shrink toward a stump.
+ * A tree is under a tile across. The first version of this used 1.5 tiles as a
+ * *radius* — a three-tile-wide disc — which at island zoom turned the forest
+ * into a field of overlapping bubbles. Trees carry the felling state in their
+ * size, so this is the full-timber end of that range.
  */
-const TREE_FULL_RADIUS = 1.5;
+const TREE_FULL_RADIUS = 1.05;
 
 /** A felled tree draws at this fraction of its full radius. Not zero — a stump
  * is still something you can see, and a logged stand should read as cut rather

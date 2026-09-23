@@ -1,4 +1,5 @@
 import { Container, Graphics } from 'pixi.js';
+import { OUTLINE_WIDTH, SHADOW_ALPHA, SHADOW_COLOR, STRUCTURE_COLORS, outlineOf } from './style';
 
 /**
  * Procedural hut sprite.
@@ -14,13 +15,15 @@ import { Container, Graphics } from 'pixi.js';
  * observer can watch the village being built rather than find it already there.
  */
 
-const POST = 0x6b4f2a;
-const WALL = 0x8a6a3d;
-const WALL_DARK = 0x6d5230;
-const ROOF = 0xb08148;
-const ROOF_DARK = 0x8a6335;
-const FLOOR = 0x5a452a;
-const GLOW = 0xffb45e;
+// Colours come from the shared palette so a hut is made of the same materials
+// as the fields, the canals and the trees around it.
+const POST = STRUCTURE_COLORS.post;
+const WALL = STRUCTURE_COLORS.wall;
+const WALL_DARK = STRUCTURE_COLORS.wallDark;
+const ROOF = STRUCTURE_COLORS.roof;
+const ROOF_DARK = STRUCTURE_COLORS.roofDark;
+const FLOOR = STRUCTURE_COLORS.floor;
+const GLOW = STRUCTURE_COLORS.glow;
 
 export class StructureSprite extends Container {
   private readonly ground = new Graphics();
@@ -42,7 +45,7 @@ export class StructureSprite extends Container {
     // the default zoom a true-scale hut is a smudge — the whole point of
     // construction is that the observer can see the village grow.
     this.half = 1.5;
-    this.ground.ellipse(0, 0.5, 1.95, 1.05).fill({ color: FLOOR, alpha: 0.55 });
+    this.ground.ellipse(0, 0.5, 2.0, 1.08).fill({ color: SHADOW_COLOR, alpha: SHADOW_ALPHA });
     this.addChild(this.ground, this.frame, this.walls, this.roof, this.hearth, this.progress);
     // A little variation between huts so a village does not look stamped out.
     this.rotation = (seedPhase % 1) * Math.PI * 2;
@@ -69,7 +72,10 @@ export class StructureSprite extends Container {
       [-half, half],
     ];
     for (const [cx, cy] of corners) {
-      this.frame.rect(cx - 0.15, cy - 0.15, 0.3, 0.3).fill({ color: POST });
+      this.frame
+        .rect(cx - 0.15, cy - 0.15, 0.3, 0.3)
+        .fill({ color: POST })
+        .stroke({ color: outlineOf(POST), width: OUTLINE_WIDTH });
     }
 
     // --- walls: grow with progress ------------------------------------------
@@ -81,8 +87,10 @@ export class StructureSprite extends Container {
       this.walls
         .rect(-half, half - height, half * 2, height)
         .fill({ color: WALL_DARK })
+        .stroke({ color: outlineOf(WALL_DARK), width: OUTLINE_WIDTH })
         .rect(-half, -half, half * 2, height * 0.75)
-        .fill({ color: WALL });
+        .fill({ color: WALL })
+        .stroke({ color: outlineOf(WALL), width: OUTLINE_WIDTH });
     }
 
     // --- roof: only on completion -------------------------------------------
@@ -91,8 +99,10 @@ export class StructureSprite extends Container {
       this.roof
         .poly([-half - 0.28, -half + 0.1, half + 0.28, -half + 0.1, 0, -half - 0.85])
         .fill({ color: ROOF_DARK })
+        .stroke({ color: outlineOf(ROOF_DARK), width: OUTLINE_WIDTH })
         .poly([-half - 0.18, -half + 0.12, half + 0.18, -half + 0.12, 0, -half - 0.7])
-        .fill({ color: ROOF });
+        .fill({ color: ROOF })
+        .stroke({ color: outlineOf(ROOF), width: OUTLINE_WIDTH });
       // Door.
       this.roof.rect(-0.3, half - 0.8, 0.6, 0.8).fill({ color: 0x2f2318 });
     }

@@ -36,6 +36,11 @@ export const ACTION = {
   Interact: 11,
   Harvest: 12,
   Build: 13,
+  // v2 motors. Without entries here the farming actions fell through to the
+  // default pose and a human sowing a field looked exactly like one walking.
+  Plant: 14,
+  Tend: 15,
+  Dig: 16,
 } as const;
 
 export interface HumanoidOptions {
@@ -220,7 +225,13 @@ export class HumanoidSprite extends Container {
     } else if (action === ACTION.Interact) {
       armLeft = -0.9;
       armRight = -0.9;
-    } else if (harvesting || action === ACTION.Harvest) {
+    } else if (
+      harvesting ||
+      action === ACTION.Harvest ||
+      action === ACTION.Plant ||
+      action === ACTION.Tend ||
+      action === ACTION.Dig
+    ) {
       // Overhead axe swing: both arms up, then down, with a body twist.
       const chop = Math.sin(this.phase * 1.1);
       const raise = Math.max(0, chop);

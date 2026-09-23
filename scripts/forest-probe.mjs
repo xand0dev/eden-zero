@@ -99,6 +99,15 @@ await page.evaluate(() => {
 await page.waitForTimeout(1200);
 
 await page.screenshot({ path: '/tmp/eden-forest.png' });
+
+// Close view: huts, humans, crops and canals have to read as themselves at the
+// zoom a player actually uses, not only as texture from the far side.
+await page.evaluate(() => {
+  window.__edenRenderer.camera.zoom = 1.6;
+});
+await page.waitForTimeout(800);
+await page.screenshot({ path: '/tmp/eden-close.png' });
+
 console.log('');
 console.log('  ticks simulated: ' + (after.tick - before.tick));
 console.log('  huts built:      ' + (after.huts - before.huts));
