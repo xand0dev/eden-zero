@@ -64,13 +64,24 @@ for the initial ring, `S.build.*` sensing.
 grows outward. Sites should appear where the network decides to place them, not
 only on a predetermined circle.
 
-- Add `forest.{front,right,back,left}` sensory channels — where the nearest
-  forest tile is. Clearing forest to build in it becomes a learnable behaviour.
 - Allow new sites anywhere the minimum separation is met, and let the priors
-  favour forest edges near water (the same reasoning that put the founders near
-  water in the first place).
+  favour building near standing timber and near water — the same reasoning that
+  put the founders near water in the first place.
 - **Consequence:** the village visibly eats into the tree line, and a second
   cluster can appear across the map when the first is exhausted.
+
+**Revised after S1.** The original plan gave S2 four new `forest.*` sensory
+channels and marked it "no brain change", which is a contradiction — new channels
+*are* a brain change. S1 resolved it by accident: the fix to the eight dead
+channels means `wood.*` now actually reaches the network, so a human can already
+sense where the timber is. Orienting toward the trees no longer needs a new
+channel; it needs a prior. That keeps S2 in the cheap column, and the `forest.*`
+channels move into the single brain change at step 3 with the rest.
+
+This also raises the priority of S2. S1 measured that in three of four seeds no
+human has a tree within sixteen tiles of genesis — the settlement is not at the
+forest edge, it is nowhere near it. The village has to be able to reach the
+forest before it can be said to spread into it.
 
 ### S3 — Fields
 
