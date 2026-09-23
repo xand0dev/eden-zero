@@ -780,8 +780,26 @@ export class WorldRenderer {
       }
 
       if (species === PlantSpecies.FoodPile) {
-        context.fillStyle = 'rgba(255, 150, 90, 0.9)';
-        context.fillRect(Math.round(cx - scale), Math.round(cy - scale), scale * 2, scale * 2);
+        // A heap of berries, not a square. A flat orange rectangle reads as a
+        // UI marker dropped on the ground; a cluster of discs reads as food.
+        const r = 0.4 * scale;
+        const berries: Array<[number, number, number]> = [
+          [-0.45, 0.18, 1],
+          [0.42, -0.08, 1],
+          [0.02, 0.46, 0.92],
+          [-0.12, -0.28, 1.05],
+        ];
+        for (const [ox, oy, s2] of berries) {
+          const size = r * s2;
+          context.fillStyle = `#${hslToHex(0.045, 0.72, 0.42).toString(16).padStart(6, '0')}`;
+          context.beginPath();
+          context.arc(cx + ox * scale, cy + oy * scale, size, 0, Math.PI * 2);
+          context.fill();
+          context.fillStyle = `#${hslToHex(0.05, 0.8, 0.62).toString(16).padStart(6, '0')}`;
+          context.beginPath();
+          context.arc(cx + ox * scale - size * 0.3, cy + oy * scale - size * 0.3, size * 0.42, 0, Math.PI * 2);
+          context.fill();
+        }
       }
     }
     this.plantTexture.source.update();

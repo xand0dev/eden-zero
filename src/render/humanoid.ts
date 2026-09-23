@@ -187,8 +187,10 @@ export class HumanoidSprite extends Container {
     let bodyBob = moving ? Math.abs(Math.sin(this.phase)) * 0.03 : Math.sin(this.phase * 0.6) * 0.012;
     let bodyLift = 0;
 
-    if (sleeping || action === ACTION.Rest) {
-      // Lie down: rotate the whole body and tuck the limbs.
+    if (sleeping) {
+      // Asleep: the whole body goes down on its side. Reserved for the night
+      // flag, because a body rotated ninety degrees reads as an animal crawling
+      // and the `rest` motor fires through the day as well.
       bodyRotation = Math.PI / 2;
       bodyLift = 0.1;
       legLeft = 0.15;
@@ -196,6 +198,17 @@ export class HumanoidSprite extends Container {
       armLeft = 0.1;
       armRight = -0.1;
       bodyBob = Math.sin(this.phase * 0.35) * 0.006;
+    } else if (action === ACTION.Rest) {
+      // Sitting: hips folded, knees forward, head dipped. Still upright, so a
+      // resting adult is recognisably a person rather than a thing on the
+      // ground.
+      bodyRotation = 0.1;
+      bodyLift = 0.06;
+      legLeft = 1.15;
+      legRight = 1.15;
+      armLeft = 0.25;
+      armRight = 0.25;
+      bodyBob = Math.sin(this.phase * 0.5) * 0.008;
     } else if (isMating) {
       // Rhythmic coupled motion — readable as mating without being explicit.
       const rhythm = Math.sin(mating * Math.PI * 14);
