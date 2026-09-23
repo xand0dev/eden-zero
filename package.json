@@ -4,7 +4,10 @@
   "version": "0.1.0-alpha.0",
   "description": "EDEN//0 - Artificial Life Observatory. You don't control life. You define its laws.",
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "./node_modules/.bin/vite",
     "build": "./node_modules/.bin/tsc --noEmit && ./node_modules/.bin/vite build",

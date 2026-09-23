@@ -44,5 +44,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# 0.0.0.0 is required inside a container; the port is only published to the host.
-CMD ["npm", "run", "server", "--", "--host", "0.0.0.0", "--port", "8080", "--speed", "4"]
+# No --port and no --host: the server reads them from the environment, so a
+# hosting platform that assigns its own PORT is honoured instead of overridden.
+CMD ["npm", "run", "server", "--", "--speed", "4"]

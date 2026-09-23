@@ -41,7 +41,7 @@ Checking the project against each week:
 | 4 | Node streams and WebSockets | **Covered** — `server/ws.ts` implements RFC 6455 by hand: upgrade handshake, masking, fragmentation, control frames, close semantics. No `ws` dependency. |
 | 5 | Prediction, reconciliation, binary protocol | **Mostly covered.** The binary protocol is real — a JSON header plus concatenated `Int32Array`/`Float32Array`/`Uint8Array` payloads, big-endian, sent as `ArrayBuffer`. Client-side *prediction* is not implemented and I am not going to claim it is: an observer controls nothing that needs predicting. What the client does instead is interpolate between the last two snapshots, and that is verified rather than asserted — see the measurement below. God commands get optimistic local feedback reconciled against the next authoritative snapshot. |
 | 6 | TypeScript | **Covered.** ~11 000 lines of strict TypeScript, `strict: true`, no `any` in the simulation core. |
-| 7 | V8 internals, profiling, tests | **Covered.** 124 tests, a dev panel reporting ticks/s, frame time, tick cost and snapshot bytes, and a real V8 CPU profile: `npm run bench` for wall-clock cost, `--cpu-prof` plus `scripts/profile-report.mjs` for self time. Written up in **[docs/PROFILING.md](PROFILING.md)**, including the assumption the profile disproved. |
+| 7 | V8 internals, profiling, tests | **Covered.** 138 tests, a dev panel reporting ticks/s, frame time, tick cost and snapshot bytes, and a real V8 CPU profile: `npm run bench` for wall-clock cost, `--cpu-prof` plus `scripts/profile-report.mjs` for self time. Written up in **[docs/PROFILING.md](PROFILING.md)**, including the assumption the profile disproved. |
 | 8 | Docker, CI/CD, public URL | **Mostly covered.** Multi-stage `Dockerfile`, GitHub Actions running typecheck → tests → build → server smoke test → acceptance → container build and boot. The public URL is the one item still outstanding. |
 
 **Proving the interpolation claim.** Snapshots arrive at 20 Hz; the renderer draws
@@ -62,8 +62,9 @@ Fifty-three distinct positions from thirty snapshots is not a claim, it is a
 measurement — and it is the kind of claim that is very easy to make in a README
 without anyone checking.
 
-One item is honestly incomplete: the public URL. Everything else is done; the
-repository is still private and there is no deployment yet.
+One item is honestly incomplete: the public URL. Everything else is done. The
+deployment is prepared but not performed — see
+**[docs/DEPLOY.md](DEPLOY.md)** — and the repository is still private.
 
 
 ---
@@ -221,7 +222,7 @@ npm run build            # production bundle into dist/
 npm run server           # authoritative world + WebSocket on :8080
 # then open http://127.0.0.1:8080/?server=auto
 
-npm test                 # 109 tests
+npm test                 # 138 tests
 npm run typecheck
 npm run accept           # the 50-point acceptance scenario
 npm run smoke:server     # boots the server and drives it over a real socket

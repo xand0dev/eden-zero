@@ -45,9 +45,18 @@ function arg(name: string, fallback: string): string {
   const index = argv.indexOf(`--${name}`);
   return index >= 0 && argv[index + 1] ? argv[index + 1] : fallback;
 }
+function hasArg(name: string): boolean {
+  return argv.includes(`--${name}`);
+}
 
-const PORT = Number(arg('port', '8080'));
-const HOST = arg('host', '127.0.0.1');
+// An explicit flag always wins over the environment. The smoke tests spawn the
+// server with `--port <n>` and must keep that port even if the CI runner happens
+// to export PORT; giving the environment priority would quietly break them. The
+// environment is the fallback so a hosting platform can assign the port, which is
+// the entire reason for reading it at all — the container image hardcoding 8080
+// would fail health checks anywhere the platform chooses the port.
+const PORT = Number(hasArg('port') ? arg('port', '8080') : (process.env.PORT ?? '8080'));
+const HOST = hasArg('host') ? arg('host', '127.0.0.1') : (process.env.HOST ?? '127.0.0.1');
 const SPEED = Number(arg('speed', '4'));
 const SEED = arg('seed', 'eden');
 const HUMANS = Number(arg('humans', '8'));

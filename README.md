@@ -217,6 +217,8 @@ former can never exceed the latter. Current reading: **53 poses from 30 snapshot
   course gap analysis, the reflection, and the honest list of what is weak.
 - **[docs/PROFILING.md](docs/PROFILING.md)** — a real V8 CPU profile: where the
   time goes, and the assumption the profile disproved.
+- **[docs/DEPLOY.md](docs/DEPLOY.md)** — how to put a live world on the
+  internet, and why serverless hosting cannot run one.
 - **[MANIFESTO.md](MANIFESTO.md)** — the Lab 42 capstone document.
 
 ---
@@ -396,7 +398,7 @@ npm run desktop        # Tauri desktop app in development
 ### Test
 
 ```bash
-npm test            # 109 unit + integration tests
+npm test            # 138 unit + integration tests
 npm run accept      # the 50-point acceptance scenario from the design brief
 npm run smoke:server # boots the server and drives it over a real socket
 npm run balance     # ecology across a batch of seeds
@@ -506,4 +508,9 @@ See `docs/ARCHITECTURE.md` and `docs/SIMULATION.md` for the full picture.
 
 ## Licence
 
-Private experimental project. Not licensed for redistribution.
+**MIT.** See [LICENSE](LICENSE).
+
+Use it, fork it, ship it — the only requirement is that the copyright notice
+travels with the code. The simulation core carries no third-party assets: every
+sprite is drawn procedurally and no ML library is used anywhere, so there is
+nothing downstream to clear.

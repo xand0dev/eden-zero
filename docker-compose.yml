@@ -1,0 +1,31 @@
+# EDEN//0 — two worlds side by side.
+#
+#   observatory  :8080   the ordinary shared-observation world
+#   match        :8081   the same world as a competitive two-house game
+#
+# Neither service passes --port. Each takes its port from its own environment,
+# which is exactly the path a hosting platform uses — so if this file boots both
+# services, reading PORT from the environment works and the image is deployable
+# anywhere that assigns one.
+#
+# Deliberately platform-neutral: no Fly- or Render-specific keys. This is the
+# local check and the cheapest possible VPS deployment, not a platform config.
+
+services:
+  observatory:
+    build: .
+    ports:
+      - '8080:8080'
+    environment:
+      PORT: '8080'
+      HOST: '0.0.0.0'
+    command: ['npm', 'run', 'server', '--', '--speed', '4']
+
+  match:
+    build: .
+    ports:
+      - '8081:8081'
+    environment:
+      PORT: '8081'
+      HOST: '0.0.0.0'
+    command: ['npm', 'run', 'server', '--', '--speed', '4', '--match']
