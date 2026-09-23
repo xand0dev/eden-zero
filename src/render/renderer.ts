@@ -51,7 +51,7 @@ export interface RendererCallbacks {
  * doing what. This is a readability decision, not a simulation one — the
  * simulation never sees it.
  */
-const SPRITE_SCALE = 1.45;
+const SPRITE_SCALE = 2.1;
 
 export class WorldRenderer {
   readonly app = new Application();
@@ -706,22 +706,48 @@ export class WorldRenderer {
         // back into a canopy as it regrows, so logging is visible in the world.
         const timber = entity.size;
         const radius = TREE_FULL_RADIUS * scale * (STUMP_DRAW_FRACTION + (1 - STUMP_DRAW_FRACTION) * timber);
-        const stripped = timber < STUMP_DRAW_THRESHOLD;
-        const color = stripped
-          ? hslToHex(STUMP_HUE, STUMP_SATURATION, STUMP_LIGHTNESS)
-          : hslToHex(profile.hue, profile.saturation, profile.lightness + food * 0.16);
+        if (timber < STUMP_DRAW_THRESHOLD) {
+          context.fillStyle = `#${hslToHex(STUMP_HUE, STUMP_SATURATION, STUMP_LIGHTNESS).toString(16).padStart(6, '0')}`;
+          context.beginPath();
+          context.arc(cx, cy, radius, 0, Math.PI * 2);
+          context.fill();
+        } else {
+          // A canopy with a darker rim under a lighter crown. Drawn as one flat
+          // disc a tree had no silhouette and simply merged into the meadow.
+          const rim = hslToHex(profile.hue, profile.saturation + 0.12, Math.max(0.07, profile.lightness - 0.13));
+          const crown = hslToHex(profile.hue, profile.saturation, profile.lightness + 0.06 + food * 0.1);
+          context.fillStyle = `#${rim.toString(16).padStart(6, '0')}`;
+          context.beginPath();
+          context.arc(cx, cy, radius, 0, Math.PI * 2);
+          context.fill();
+          context.fillStyle = `#${crown.toString(16).padStart(6, '0')}`;
+          context.beginPath();
+          context.arc(cx - radius * 0.14, cy - radius * 0.14, radius * 0.68, 0, Math.PI * 2);
+          context.fill();
+        }
+      } else if (species === PlantSpecies.Bush) {
+        // Scrub: a disc, darker than grass and larger, so it does not vanish
+        // into what it grows among.
+        const size = 2.4 * scale;
+        const color = hslToHex(profile.hue, profile.saturation + 0.08, Math.max(0.1, profile.lightness - 0.03));
         context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-        // A canopy, not a square, so a forest reads as a forest at a glance.
         context.beginPath();
-        context.arc(cx, cy, radius, 0, Math.PI * 2);
+        context.arc(cx, cy, size, 0, Math.PI * 2);
         context.fill();
       } else {
-        // Grass and bush are drawn at increasing footprint so a meadow reads
-        // differently from scrub.
-        const size = (species === PlantSpecies.Bush ? 2 : 1) * scale;
+        // Grass: small, soft and translucent.
+        //
+        // Drawn opaque at tile size it became a solid green carpet that buried
+        // every other layer — six thousand plants, and the map read as one flat
+        // sheet. Half-transparent and much smaller, the ground shows through and
+        // the vegetation reads as texture rather than as fill.
         const color = hslToHex(profile.hue, profile.saturation, profile.lightness + food * 0.16);
+        context.globalAlpha = 0.5;
         context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-        context.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+        context.beginPath();
+        context.arc(cx, cy, 1.6 * scale, 0, Math.PI * 2);
+        context.fill();
+        context.globalAlpha = 1;
       }
 
       if (species === PlantSpecies.FoodPile) {

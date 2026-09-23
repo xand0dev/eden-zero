@@ -90,6 +90,12 @@ const after = await readStats();
 await page.evaluate(() => {
   window.__eden.god({ kind: 'timeOfDay', phase: 0.42 });
 });
+// Pull the camera back to the whole island, which is how a player first sees it.
+await page.evaluate(() => {
+  window.__edenRenderer.camera.zoom = 0.52;
+  window.__edenRenderer.camera.x = 88;
+  window.__edenRenderer.camera.y = 64;
+});
 await page.waitForTimeout(1200);
 
 await page.screenshot({ path: '/tmp/eden-forest.png' });
