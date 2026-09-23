@@ -1,7 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { sim, useSim, formatAge, stageName } from '../ui/sim';
-import { MOTOR_NAMES, MOTOR_START, NEURON_COUNT } from '../simulation/brain/channels';
-import { REGION_NAMES, regionOf } from '../simulation/brain/channels';
+import {
+  LOCAL_COUNT,
+  LOCAL_START,
+  MOD_COUNT,
+  MOD_START,
+  MOTOR_COUNT,
+  MOTOR_NAMES,
+  MOTOR_START,
+  NEURON_COUNT,
+  RECURRENT_COUNT,
+  RECURRENT_START,
+  REGION_NAMES,
+  SENSORY_COUNT,
+  regionOf,
+} from '../simulation/brain/channels';
 
 /**
  * Human inspector: physiology, relationships, live brain and the
@@ -274,10 +287,23 @@ function BrainPanel(): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const filterRef = useRef({ showSynapses: true, minWeight: 0.25 });
   const [showSynapses, setShowSynapses] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     filterRef.current.showSynapses = showSynapses;
   }, [showSynapses]);
+
+  // Escape closes the expanded view. Without it the only way out is to find the
+  // small button again, which is exactly the wrong thing to ask of someone who
+  // just went full screen to look at something.
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -315,7 +341,10 @@ function BrainPanel(): JSX.Element {
 
       // Neuron positions, grouped by region.
       const positions: Array<[number, number]> = new Array(NEURON_COUNT);
-      const counts = [32, 64, 132, 16, 12];
+      // Region sizes come from the channel table, never from a literal. The
+      // literals that used to live here were v1's [32, 64, 132, 16, 12] and
+      // silently mis-drew every neuron after the brain grew.
+      const counts = [SENSORY_COUNT, LOCAL_COUNT, RECURRENT_COUNT, MOD_COUNT, MOTOR_COUNT];
       for (let band = 0; band < bands; band++) {
         const count = counts[band];
         const columns = Math.max(1, Math.ceil(Math.sqrt(count)));
@@ -383,11 +412,11 @@ function BrainPanel(): JSX.Element {
 
       // Motor output bars.
       let lead = 0;
-      for (let i = 1; i < 12; i++) if ((brain.motor[i] ?? 0) > (brain.motor[lead] ?? 0)) lead = i;
+      for (let i = 1; i < MOTOR_COUNT; i++) if ((brain.motor[i] ?? 0) > (brain.motor[lead] ?? 0)) lead = i;
       const barTop = height - 6;
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < MOTOR_COUNT; i++) {
         const value = Math.max(0, Math.min(1, brain.motor[i] ?? 0));
-        const x = padding + i * 9;
+        const x = padding + i * (width / MOTOR_COUNT - 2) * 0.9;
         context.fillStyle = 'rgba(60,72,84,0.5)';
         context.fillRect(x, barTop - 12, 6, 12);
         context.fillStyle = i === lead ? '#ff8a3d' : 'rgba(255,138,61,0.4)';
@@ -400,7 +429,7 @@ function BrainPanel(): JSX.Element {
   }, []);
 
   const brain = state.brain;
-  const motor = brain?.motor ?? new Array(12).fill(0);
+  const motor = brain?.motor ?? new Array(MOTOR_COUNT).fill(0);
   let lead = 0;
   for (let i = 1; i < motor.length; i++) if (motor[i] > motor[lead]) lead = i;
 
@@ -415,8 +444,17 @@ function BrainPanel(): JSX.Element {
         >
           synapses
         </button>
+        <button
+          className={expanded ? 'active' : ''}
+          onClick={() => setExpanded((value) => !value)}
+          style={{ fontSize: 9, padding: '2px 6px' }}
+          title="Expand the brain to fill the window (Esc to close)"
+        >
+          {expanded ? 'shrink' : 'expand'}
+        </button>
       </div>
-      <canvas className="brain-canvas" ref={canvasRef} />
+      <canvas className={`brain-canvas ${expanded ? 'expanded' : ''}`} ref={canvasRef} />
+      {expanded ? <div className="brain-hint">Esc to close · the graph is live</div> : null}
       <div className="motor-bars">
         {MOTOR_NAMES.map((name, index) => (
           <div key={name} className={`motor-bar ${index === lead ? 'lead' : ''}`}>
@@ -441,10 +479,10 @@ function BrainPanel(): JSX.Element {
 
 function neuronIndexFor(band: number, index: number): number {
   if (band === 0) return index;
-  if (band === 1) return 32 + index;
-  if (band === 2) return 96 + index;
-  if (band === 3) return 228 + index;
-  return 244 + index;
+  if (band === 1) return LOCAL_START + index;
+  if (band === 2) return RECURRENT_START + index;
+  if (band === 3) return MOD_START + index;
+  return MOTOR_START + index;
 }
 
 /** "Why did it do that?" — the approximate activation/contribution trace. */

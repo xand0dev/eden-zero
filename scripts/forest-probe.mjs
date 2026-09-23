@@ -59,6 +59,8 @@ const readStats = () =>
       huts: stats.huts ?? 0,
       timber: stats.timber ?? 0,
       trees: stats.trees ?? 0,
+      fields: (window.__eden.getSnapshot().fields ?? []).length,
+      canals: (window.__eden.getSnapshot().canals ?? []).length,
     };
   });
 
@@ -75,7 +77,9 @@ for (let elapsed = 5; elapsed <= totalSeconds; elapsed += 5) {
     '  pop=' + String(now.population).padStart(2) +
     '  huts=' + String(now.huts).padStart(2) +
     '  trees=' + String(now.trees).padStart(4) +
-    '  timber=' + now.timber.toFixed(0).padStart(6),
+    '  timber=' + now.timber.toFixed(0).padStart(6) +
+    '  fields=' + String(now.fields).padStart(2) +
+    '  canals=' + String(now.canals).padStart(3),
   );
 }
 

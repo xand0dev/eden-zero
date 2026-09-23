@@ -559,6 +559,39 @@ input[type='range'] {
   border-radius: 4px;
 }
 
+/**
+ * Expanded brain.
+ *
+ * The inspector column is narrow, and a 341-neuron graph in a 210-pixel strip
+ * is a diagram rather than a thing you can watch. Expanding puts the same canvas
+ * over the whole window so the activity is legible.
+ */
+.brain-canvas.expanded {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 900;
+  border: none;
+  border-radius: 0;
+}
+
+.brain-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 901;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(8, 12, 18, 0.86);
+  border: 1px solid var(--border);
+  color: #93a4b3;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
 .motor-bars {
   display: flex;
   flex-direction: column;
