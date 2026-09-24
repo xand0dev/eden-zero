@@ -45,7 +45,7 @@ export class StructureSprite extends Container {
     // the default zoom a true-scale hut is a smudge — the whole point of
     // construction is that the observer can see the village grow.
     this.half = 1.5;
-    this.ground.ellipse(0, 0.5, 2.0, 1.08).fill({ color: SHADOW_COLOR, alpha: SHADOW_ALPHA });
+    this.ground.ellipse(0, 0.75, 1.75, 0.8).fill({ color: SHADOW_COLOR, alpha: SHADOW_ALPHA });
     this.addChild(this.ground, this.frame, this.walls, this.roof, this.hearth, this.progress);
     // A little variation between huts so a village does not look stamped out.
     this.rotation = (seedPhase % 1) * Math.PI * 2;
@@ -81,9 +81,12 @@ export class StructureSprite extends Container {
     // --- walls: grow with progress ------------------------------------------
     this.walls.clear();
     if (progress > 0.12) {
-      // The wall ring fills in as timber arrives, so the hut visibly rises.
+      // The wall ring fills in as timber arrives, so the hut visibly rises —
+      // all the way to the eaves. It used to stop at a fixed 1.02 tiles, which
+      // on a 3-tile footprint left a gap between the walls and the roof and
+      // made a finished hut read as two separate objects.
       const rise = Math.min(1, progress / 0.85);
-      const height = 0.36 + rise * 0.66;
+      const height = 0.4 + rise * (half * 2 - 0.4);
       this.walls
         .rect(-half, half - height, half * 2, height)
         .fill({ color: WALL_DARK })

@@ -88,7 +88,7 @@ const after = await readStats();
 // Daylight, so the forest is actually legible in the screenshot. The night
 // overlay is dark enough that a stripped stand would be hard to judge.
 await page.evaluate(() => {
-  window.__eden.god({ kind: 'timeOfDay', phase: 0.42 });
+  window.__eden.god({ kind: 'timeOfDay', phase: 0.3 });
 });
 // Pull the camera back to the whole island, which is how a player first sees it.
 await page.evaluate(() => {
@@ -107,6 +107,39 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(800);
 await page.screenshot({ path: '/tmp/eden-close.png' });
+
+// What are the humans actually doing? A pose problem is easier to see in the
+// action mix than in a screenshot.
+const actions = await page.evaluate(() => {
+  const snapshot = window.__eden.getSnapshot();
+  const humans = (snapshot.entities ?? []).filter((e) => e && e.kind === 0);
+  const counts = {};
+  for (const h of humans) counts[h.action] = (counts[h.action] ?? 0) + 1;
+  const sizes = humans.map((h) => h.size);
+  const flagCounts = {};
+  for (const h of humans) flagCounts[h.flags] = (flagCounts[h.flags] ?? 0) + 1;
+  return {
+    total: humans.length,
+    counts,
+    flags: flagCounts,
+    sizeMin: sizes.length ? Math.min(...sizes).toFixed(3) : 'n/a',
+    sizeMax: sizes.length ? Math.max(...sizes).toFixed(3) : 'n/a',
+  };
+});
+console.log('human actions (motor index -> count): ' + JSON.stringify(actions));
+
+// Very close, centred on a human, so the pose is actually judgeable.
+await page.evaluate(() => {
+  const snapshot = window.__eden.getSnapshot();
+  const human = (snapshot.entities ?? []).find((e) => e && e.kind === 0);
+  if (human) {
+    window.__edenRenderer.camera.x = human.x;
+    window.__edenRenderer.camera.y = human.y;
+  }
+  window.__edenRenderer.camera.zoom = 5;
+});
+await page.waitForTimeout(900);
+await page.screenshot({ path: '/tmp/eden-human.png' });
 
 console.log('');
 console.log('  ticks simulated: ' + (after.tick - before.tick));

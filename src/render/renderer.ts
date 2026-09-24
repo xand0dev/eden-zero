@@ -52,7 +52,7 @@ export interface RendererCallbacks {
  * doing what. This is a readability decision, not a simulation one — the
  * simulation never sees it.
  */
-const SPRITE_SCALE = 2.1;
+const SPRITE_SCALE = 3.2;
 
 export class WorldRenderer {
   readonly app = new Application();
@@ -629,8 +629,15 @@ export class WorldRenderer {
         seenHumans.add(entity.id);
         const sprite = this.obtainSprite(false, entity.id);
         sprite.position.set(pose.x, pose.y);
-        // Sprites are authored facing "up"; the world's heading 0 points along +x.
-        sprite.rotation = pose.heading + Math.PI / 2;
+        // Deliberately not rotated.
+        //
+        // The sprite is authored as a side-on figure: head up, legs down. It used
+        // to be turned to `heading + PI/2`, which laid the whole body on its side
+        // whenever the human faced east or west — a walking adult rendered as
+        // something crawling, which is exactly how it read. In a top-down view a
+        // standing figure is the same drawing at every heading, so the rotation
+        // is not just unnecessary, it is wrong.
+        sprite.rotation = 0;
         // In competitive mode house 1 gets a cool shift so the two lineages are
         // visually distinct at a glance without losing the individual variation.
         const hue = entity.house === 1 ? (entity.hue + 0.45) % 1 : entity.hue;
@@ -650,7 +657,7 @@ export class WorldRenderer {
         seenPredators.add(entity.id);
         const sprite = this.obtainSprite(true, entity.id);
         sprite.position.set(pose.x, pose.y);
-        sprite.rotation = pose.heading + Math.PI / 2;
+        sprite.rotation = 0;
         sprite.update(
           dt,
           entity.action,
