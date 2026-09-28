@@ -16,15 +16,43 @@ The program is a set of 42 lab briefs, not a single stack, so the question is no
 |---|---|---|
 | **14** | Cellular Automata Simulator | Superset. A 176×128 world of thousands of interacting agents with emergent population dynamics, not a fixed rule table. |
 | **13** | Physics Sandbox | Agents have continuous physiology — metabolism, thermoregulation, fatigue, injury — and the world is a closed ecology. |
-| **32** | Neural Net From Scratch | The brain is a 270-neuron sparse recurrent spiking network written from primitives. No ML library is used anywhere in the repository. |
+| **32** | Neural Net From Scratch | The brain is a 341-neuron sparse recurrent spiking network (64 sensory channels, 17 motors) with reward-modulated Hebbian learning, written from primitives. No ML library is used anywhere in the repository. |
 | **23 / 27** | Real-Time Service / Multiplayer Browser Game | Shared-observation mode: an authoritative Node server, a hand-written RFC 6455 WebSocket implementation, and a binary snapshot protocol. |
 | **22** | SPA Frontend | React + Vite + PixiJS observatory. |
-| **42** | Life, The Universe, And Everything | The capstone. See `MANIFESTO.md`. |
+| **42** | Life, The Universe, And Everything | The capstone, **Path A (synthesis)**. See `MANIFESTO.md` and the checklist below. |
 
 **Suggested track:** H — Math / Graphics / Simulation.
 
 **Pairing the briefs explicitly endorse:** `[26 + 14]` and `[13 + 14]`. This project
 is the second one taken further than the brief asks.
+
+### What the synthesis does that no single lab can
+
+Lab 14 gives a world of agents with emergent dynamics but no bodies and no minds.
+Lab 13 gives bodies and physics but nothing that decides. Lab 32 gives a network
+that learns but never lives in anything. Fused, they give the one thing none of them
+can: **creatures whose behaviour is not written anywhere**, whose bodies generate
+the reward signal their brains learn from, and whose children inherit the wiring.
+Labs 22 and 23/27 turn that into something you can watch, open up and share: an
+observatory that shows which spikes fired, what the brain felt, and how far each
+synapse has moved since birth.
+
+---
+
+## Lab 42 checklist — current status
+
+| Item | Status | Where |
+|---|---|---|
+| `MANIFESTO.md` with *The Question* … *The Answer: 42* | **Done** | [MANIFESTO.md](../MANIFESTO.md) |
+| Product shipped: public URL, release or binary | **Not yet.** Builds are ready (static web build, Docker image, Tauri app); the repository is private and nothing is deployed. Needs the author's decision on where to publish. | [DEPLOY.md](DEPLOY.md) |
+| Demo video 60–120 s in the README | **Done** — 69 s, recorded from the real build | [docs/media/demo.mp4](media/demo.mp4) |
+| README: hero, quickstart, architecture, *Don't Panic* | **Done** | [README.md](../README.md) |
+| `docs/RETRO.md`, specific and honest | **Done** | [RETRO.md](RETRO.md) |
+| At least one real human, not the author, has used it | **Not yet** — to be done before the defense; note who | — |
+| A prior lab meaningfully reused | **Done** — Labs 13, 14, 32, 22, 23/27 and the JS course | above |
+| License | **Done** — MIT | [LICENSE](../LICENSE) |
+| Public showcase post | Optional — a draft is in [DEFENSE.md](DEFENSE.md) | — |
+| Honest limitations section | **Done** | [RETRO.md](RETRO.md), section 6 below |
 
 ---
 
@@ -40,8 +68,8 @@ Checking the project against each week:
 | 3 | Promises and async | **Covered.** Worker RPC with request ids and a timeout; the server's accept loop is async. |
 | 4 | Node streams and WebSockets | **Covered** — `server/ws.ts` implements RFC 6455 by hand: upgrade handshake, masking, fragmentation, control frames, close semantics. No `ws` dependency. |
 | 5 | Prediction, reconciliation, binary protocol | **Mostly covered.** The binary protocol is real — a JSON header plus concatenated `Int32Array`/`Float32Array`/`Uint8Array` payloads, big-endian, sent as `ArrayBuffer`. Client-side *prediction* is not implemented and I am not going to claim it is: an observer controls nothing that needs predicting. What the client does instead is interpolate between the last two snapshots, and that is verified rather than asserted — see the measurement below. God commands get optimistic local feedback reconciled against the next authoritative snapshot. |
-| 6 | TypeScript | **Covered.** ~11 000 lines of strict TypeScript, `strict: true`, no `any` in the simulation core. |
-| 7 | V8 internals, profiling, tests | **Covered.** 138 tests, a dev panel reporting ticks/s, frame time, tick cost and snapshot bytes, and a real V8 CPU profile: `npm run bench` for wall-clock cost, `--cpu-prof` plus `scripts/profile-report.mjs` for self time. Written up in **[docs/PROFILING.md](PROFILING.md)**, including the assumption the profile disproved. |
+| 6 | TypeScript | **Covered.** ~17 000 lines of strict TypeScript, `strict: true`, no `any` in the simulation core. |
+| 7 | V8 internals, profiling, tests | **Covered.** 168 tests, a dev panel reporting ticks/s, frame time, tick cost and snapshot bytes, and a real V8 CPU profile: `npm run bench` for wall-clock cost, `--cpu-prof` plus `scripts/profile-report.mjs` for self time. Written up in **[docs/PROFILING.md](PROFILING.md)**, including the assumption the profile disproved. |
 | 8 | Docker, CI/CD, public URL | **Mostly covered.** Multi-stage `Dockerfile`, GitHub Actions running typecheck → tests → build → server smoke test → acceptance → container build and boot. The public URL is the one item still outstanding. |
 
 **Proving the interpolation claim.** Snapshots arrive at 20 Hz; the renderer draws
@@ -88,7 +116,7 @@ detail.
 
 **The behaviour is not scripted, and that is the whole point — but it took three
 attempts to get there.** There is no `findFood()` anywhere in the repository. An
-agent moves because 44 sensory channels feed a sparse recurrent network whose
+agent moves because 64 sensory channels feed a sparse recurrent network whose
 motor read-out is the only thing the world reacts to. When something goes wrong,
 you cannot fix it by editing a rule, because there is no rule. That is the
 interesting part of the project and also the reason it took far longer than
@@ -194,21 +222,25 @@ next, and it is a more honest portfolio piece.
 
 ## 6. What is honest to say is weak
 
-- **Ecology is viable, not tuned.** Six of six seeds now survive 1.4 simulated
-  hours and three of them grow, but roughly a third still decline. The mechanisms
-  are present and the population is no longer fragile; the balance is not yet such
-  that every world thrives.
-- **One JS-course item is incomplete: the public URL.** Everything else is done; the repository is still private and there is no deployment yet.
-- **Predator reproduction is asexual.** It reuses the `mate` motor but not the
-  mating machinery. Humans have real sexual reproduction with crossover and
-  mutation; predators bud. That is a shortcut and it is labelled as one.
-- **No authored art.** Every sprite is drawn procedurally from primitives, which
-  keeps the repository free of third-party assets but means the world looks like
-  coloured geometry, because it is.
-- **Tick cost grows with population.** Each animal scans nearby plants and
-  conspecifics, so cost is roughly quadratic in population. Comfortable into the
-  low hundreds; a few thousand would need a different broad-phase strategy.
-- **No demo video yet.** I cannot record one; that is a human task.
+- **Population viability is bimodal, not solved.** On an 8-seed, 200 000-tick
+  baseline (2 predators) four worlds went extinct and one fell to a single survivor,
+  while three grew without bound. The measurements, and the causes found so far — a
+  canal-digging cost charged 24× too often that made brains unlearn mating, and
+  villagers dispersing beyond sight of each other — are in
+  [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md). Acceptance check #29 ("multiple
+  generations within 200 000 ticks") still fails on its seed, so **the CI job that
+  runs `npm run accept` is red** until that is fixed.
+- **Thriving worlds get slow.** Tick cost is linear in population; a 689-person
+  world costs ~16 ms per tick, which is not watchable at high speed.
+- **Autosave fails silently for large worlds.** A 58-person save is 10 MB, over
+  the browser's `localStorage` quota. Export to a file works.
+- **Shipping is incomplete:** no public URL yet, and no outside user yet.
+- **Predator reproduction is asexual.** A shortcut, labelled as one.
+- **The settlement has no stages or crises yet** (camp → village → town, drought,
+  cold): planned as roadmap stage S5, not built.
+- **The brain view thins impulses** to at most one per synapse per update so it
+  stays readable; brightness, the "why" route, feeling and learning colours are the
+  real data. The legend says so.
 
 ---
 
@@ -222,7 +254,7 @@ npm run build            # production bundle into dist/
 npm run server           # authoritative world + WebSocket on :8080
 # then open http://127.0.0.1:8080/?server=auto
 
-npm test                 # 138 tests
+npm test                 # 168 tests
 npm run typecheck
 npm run accept           # the 50-point acceptance scenario
 npm run smoke:server     # boots the server and drives it over a real socket

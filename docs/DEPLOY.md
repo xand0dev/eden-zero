@@ -6,6 +6,34 @@ entirely, and picking one blindly wastes an evening.
 
 ---
 
+## Option 0 — a static web build (single-player): the simplest way to ship
+
+The single-player world runs entirely in the visitor's browser — the simulation
+is in a Web Worker — so it needs no server at all. This is the build to publish
+for Lab 42's "a real human can use it".
+
+```bash
+npm ci
+npm run build          # → dist/, about 2.8 MB
+```
+
+`vite.config.ts` uses `base: './'`, so `dist/` works from any sub-path. Verified by
+serving it at `/eden-zero/` (as GitHub Pages would) and starting a world in a
+headless browser: the world runs, no console errors
+(`scripts/.scratch/pages-check.mjs`).
+
+Where to put `dist/`, all free:
+
+- **GitHub Pages** — needs the repository to be public (or a paid plan). Push
+  `dist/` to a `gh-pages` branch, or add a Pages workflow that runs `npm run build`
+  and uploads `dist/`.
+- **Netlify / Cloudflare Pages** — connect the repository with build command
+  `npm run build` and output directory `dist`, or drag `dist/` onto Netlify Drop.
+- **itch.io** — zip the *contents* of `dist/` and upload as an HTML5 game.
+
+What a static build does not have: the shared multi-observer server mode below.
+Saves stay in the visitor's browser.
+
 ## What the host must provide
 
 Three things, all non-negotiable:

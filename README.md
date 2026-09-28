@@ -4,10 +4,44 @@
 
 **You don't control life. You define its laws.**
 
-EDEN//0 is a desktop artificial-life god simulator. You open a small world, eight
-humans wake up beside fresh water with nothing but a genome and a 256-neuron
-brain, and you watch what survives. You can intervene — spawn, kill, strike with
-lightning, edit a genome — but you never take the wheel.
+[![EDEN//0 — a farming village that nobody scripted](docs/screenshots/02-world.jpg)](docs/media/demo.mp4)
+
+> **The Question** — *If you write down every rule a creature follows, and none of
+> the rules say "be alive" — is what comes out alive, or only a machine that looks
+> like one?*
+>
+> **The Answer** — 42. This repository. ([MANIFESTO.md](MANIFESTO.md))
+
+Eight humans wake up beside a river with a genome, a body that gets hungry,
+thirsty, cold and tired, and a **341-neuron spiking brain**. Nothing they do is
+written down: they forage, court, raise children, fell trees, build roundhouses,
+sow fields and dig canals because their neural activity produces motor commands —
+and those commands are the only thing the world reacts to. Open any of them and
+watch the spikes, the reward signal their brain learns from, and how far each
+synapse has moved since birth.
+
+**▶ [Watch the 69-second demo](docs/media/demo.mp4)** · Lab 42 capstone of the
+[Programming Practice program](https://github.com/rmalkevy/Programming-Practice-Projects)
+· [Submission notes](docs/SUBMISSION.md) · [Retrospective](docs/RETRO.md)
+
+### Quickstart
+
+```bash
+git clone <this repository> && cd eden-zero
+npm ci
+npm run dev          # open http://localhost:1420 → press GENESIS
+```
+
+Select anyone in the world, open **Live brain → expand**, press **L** for the
+learning view and **S** to hear it. Requires Node 22+. Desktop app:
+`npm run desktop`; shared server: `npm run server` (see below).
+
+### Don't Panic
+
+It is not alive, and it does not claim to be. It is a world where the question can
+be asked without cheating: no behaviour tree, no scripted villager, no LLM, no
+score. What is still broken is written down in [docs/RETRO.md](docs/RETRO.md) —
+including the parts that fail their own acceptance test.
 
 ---
 
@@ -29,10 +63,12 @@ biological fidelity. See the honesty section below.
 The central design rule of this project is: **do not script interesting
 behaviour.** Instead of high-level decisions, a human is given three things.
 
-**Sensory inputs** — 32 channels covering vision (food, water, conspecifics and
-threats, each encoded with graded egocentric direction), touch, pain, cold, heat,
-light level, hunger, thirst, fatigue, energy, health, stress, libido, fertility,
-familiarity, attachment and an internal noise channel.
+**Sensory inputs** — 64 channels covering vision (food, water, conspecifics,
+threats, timber, building sites, forest, fields and canals, each encoded with
+graded egocentric direction), touch, pain, cold, heat, light level, hunger, thirst,
+fatigue, energy, health, stress, libido, fertility, familiarity, attachment, what
+is being carried, shelter, time of day, soil moisture, the state of the nearest
+field and an internal noise channel.
 
 **Internal state** — energy, hunger, thirst, fatigue, health, pain, body
 temperature, stress, fertility, libido, attachment modulation, pregnancy, and
@@ -40,9 +76,11 @@ biological age. Several of these *modulate the senses upstream of the network*: 
 hungry animal literally sees food more strongly, and a thirsty one smells water
 from further away. That is homeostatic gain control, not a decision.
 
-**Low-level outputs** — twelve motor neurons: move forward/backward, turn
-left/right, sprint, eat, drink, rest, attack, signal, mate, interact. Movement
-physics reads the first five directly; the rest are proximity-gated reflexes.
+**Low-level outputs** — seventeen motor neurons: move forward/backward, turn
+left/right, sprint, eat, drink, rest, attack, signal, mate, interact, harvest
+(fell timber), build, plant, tend, dig. Movement physics reads the first five
+directly; the rest are proximity-gated: pressing "eat" does something only if food
+is actually within reach.
 
 Everything else — foraging routes, who approaches whom, who fights, who pairs
 with whom, which lineages survive — is emergent.
@@ -55,13 +93,13 @@ A **Drosophila-inspired executable neural architecture**, not the FlyWire
 connectome. The project deliberately does **not** embed or redistribute FlyWire
 datasets, and does **not** attempt to simulate ~139,000 neurons per individual.
 
-Each human has a sparse recurrent network of **256 neurons** and roughly
-**2,000–5,000 synapses** (configurable through the genome):
+Each human has a sparse recurrent network of **341 neurons** and several thousand
+synapses (density is a gene):
 
 ```
-  sensory (32)  →  local processing (64)  →  recurrent interneurons (132)
-                                              →  neuromodulatory pool (16)
-                                              →  motor (12)
+  sensory (64)  →  local processing (80)  →  recurrent interneurons (160)
+                                              →  neuromodulatory pool (20)
+                                              →  motor (17)
 ```
 
 The model is **Leaky Integrate-and-Fire**: neurons have a membrane potential and
@@ -220,6 +258,10 @@ former can never exceed the latter. Current reading: **53 poses from 30 snapshot
 - **[docs/DEPLOY.md](docs/DEPLOY.md)** — how to put a live world on the
   internet, and why serverless hosting cannot run one.
 - **[MANIFESTO.md](MANIFESTO.md)** — the Lab 42 capstone document.
+- **[docs/RETRO.md](docs/RETRO.md)** — what worked, what didn't, what I'd do
+  differently, which labs flowed in.
+- **[docs/DEFENSE.md](docs/DEFENSE.md)** — preparation for the defense (Ukrainian).
+- **[docs/media/demo.mp4](docs/media/demo.mp4)** — the 69-second demo.
 
 ---
 
@@ -243,9 +285,15 @@ This is the part of the project with the most HCI substance.
 - **Human inspector** — physiology, lifecycle, pregnancy, genealogy, and a social
   memory read-out. Attachment is a continuous value, not a relationship type:
   there are no husbands, wives or friends in this simulation.
-- **Live brain view** — 256 neurons in five regions, brightness driven by smoothed
-  firing rate, the strongest synapses drawn and colour-coded by sign, motor output
-  bars beneath.
+- **Live brain view** — all 341 neurons laid out the way signal flows: senses
+  grouped by meaning on the left, the recurrent core and its neuromodulatory ring in
+  the centre, the 17 motors on the right with their commands. Impulses travel along
+  synapses when a neuron *actually spikes*; a gold or crimson wave marks the reward
+  or pain signal the brain learns from; **L** colours every synapse by how far it
+  has moved since birth; **S** turns the activity into sound. Expanded, it cuts a
+  porthole in which the camera holds the same person in the living world, with
+  which way they sense food, water, kin and threat. A spike raster and a ribbon of
+  decisions record the last forty seconds.
 - **Why did it do that?** — an approximate activation/contribution trace for the
   winning motor output: which inputs contributed, by how much, and the strongest
   chain of neurons that carried the signal.
@@ -315,8 +363,8 @@ Three fixes followed:
   starved without ever meeting anyone. Bites now land every 0.7 s, reproduction is
   far slower, and they are released in the wilderness around the village.
 
-Measured across six seeds, 1.4 simulated hours each, from eight founders with two
-predators:
+*Historical measurement (brain v1, before agriculture)* — six seeds, 1.4
+simulated hours each, eight founders, two predators:
 
 ```
   seed       final pop   generation   births/h  deaths/h   outcome
@@ -330,10 +378,15 @@ predators:
   6/6 survived · 3/6 with births ≥ deaths · mean final population 11.0
 ```
 
-Worlds no longer reliably go extinct, and two of six grew three- to fourfold.
-Outcomes still vary by seed — with eight founders, genetic drift and plain luck
-dominate, which is the honest behaviour of a small founding population and exactly
-the situation the god tools exist for. Reproduce these numbers with:
+**Current measurement (brain v2, agriculture, 200 000 ticks ≈ 2.8 simulated
+hours).** The picture got worse and more interesting. On eight seeds with two
+predators the outcome is bimodal: four worlds went extinct and one fell to a single
+survivor, while three grew without bound (eden reached 689 people and generation 5).
+The causes found so far, with their numbers, are in
+[docs/IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md): action gates that ignored
+their own reach (fixed), a canal-digging cost charged 24× too often that made
+brains unlearn mating (fixed), and villagers dispersing out of sight of each other
+(designed, not yet measured). Reproduce with:
 
 ```bash
 npm run balance
@@ -341,20 +394,22 @@ npm run balance
 
 ## Current limitations
 
-- **Ecology is viable, not tuned.** Roughly a third of seeds still decline over
-  the first simulated hours. The mechanisms are all present and the population is
-  no longer fragile, but the balance is not yet such that every world thrives.
-  `npm run balance` exists so this can be measured rather than guessed at.
+- **Population viability is bimodal.** Some seeds die out, some grow without bound;
+  acceptance check #29 (multiple generations within 200 000 ticks) fails on its
+  seed, so the CI job that runs `npm run accept` is red.
+- **No carrying capacity below the hard cap.** Food is effectively unlimited, so a
+  thriving world keeps growing, and tick cost grows with it (~16 ms/tick at 689
+  people).
+- **Autosave fails silently in large worlds**: every person carries a brain, and a
+  58-person save (10 MB) exceeds `localStorage`. Export to a file works.
+- **No settlement stages or crises yet** (camp → village → town, drought, cold,
+  crop disease) — the next roadmap stage.
 - Predator reproduction is asexual (see above).
-- Human language, culture, crafting, construction, agriculture and tools are out
-  of scope for V0 by design.
-- Social memory accumulates but does not decay during a lifetime (the decay
-  function exists but is not yet driven from the tick loop).
-- The world is a single fixed 176×128 tile map; there is no world generator UI.
-- Rendering uses procedural vector sprites; there are no authored art assets.
-- Tick cost grows with population, because each animal scans nearby plants and
-  conspecifics. It is comfortable into the low hundreds; a few thousand would need
-  a different broad-phase strategy.
+- Human language, culture, crafting and tools are out of scope by design.
+- Social memory accumulates but does not decay during a lifetime.
+- The brain view thins impulses to at most one per synapse per update so it stays
+  readable; brightness, the "why" route, feeling and learning colours are the real
+  data, and the legend says which impulses are recorded spikes.
 
 ### Tuning harness
 
@@ -379,7 +434,7 @@ reports the distribution, because a single run tells you almost nothing.
 ### Requirements
 
 - macOS on Apple Silicon (developed on an M-series MacBook Pro)
-- Node.js 20+
+- Node.js 22+ (see `engines` in package.json)
 - Rust stable (`rustup`) and Xcode Command Line Tools
 
 ### Setup
@@ -445,15 +500,17 @@ npm run brain          # neural dynamics diagnostic
 
 | | |
 |---|---|
-| ![Genesis](docs/screenshots/01-genesis.png) | ![World](docs/screenshots/02-world.png) |
-| **Genesis** — a seed, a population, and nothing else. | **World** — water, shoreline, vegetation, and the inhabitants. |
-| ![Inspector](docs/screenshots/03-inspector.png) | ![Brain](docs/screenshots/04-brain-and-trace.png) |
-| **Inspector** — physiology, genealogy, social memory, genome. | **Live brain and contribution trace.** |
-| ![Family tree](docs/screenshots/05-family-tree.png) | |
-| **Family tree** — founders and their descendants. | |
+| ![Genesis](docs/screenshots/01-genesis.jpg) | ![World](docs/screenshots/02-world.jpg) |
+| **Genesis** — the island for your seed, before it exists. | **A village nobody scripted** — roundhouses, fields, canals from the river. |
+| ![Inspector](docs/screenshots/03-inspector.jpg) | ![Brain](docs/screenshots/04-brain.jpg) |
+| **Inspector** — physiology, genealogy, social memory, the small live brain. | **Live brain** — real spikes, the "why" route, the porthole onto the world. |
+| ![Learning](docs/screenshots/05-learning.jpg) | ![Night](docs/screenshots/06-night.jpg) |
+| **Learning view** — gold: strengthened since birth; violet: weakened. | **Night** — a moonlit grade and a hearth in every finished hut. |
+| ![Family tree](docs/screenshots/07-family-tree.jpg) | ![Sprite lab](docs/screenshots/08-sprite-lab.jpg) |
+| **Family tree** — founders and their descendants. | **Sprite lab** (`?lab=1`) — every model at one scale. |
 
-These are captures of the running application, produced by
-`scripts/verify-ui.mjs`.
+Captured from the running build by a headless browser
+(`scripts/verify-ui.mjs` and friends).
 
 ---
 
@@ -465,9 +522,9 @@ These are captures of the running application, produced by
 │                                                          │
 │  React UI            ┌──────────────────────────────┐    │
 │  ├─ controls         │        PixiJS renderer       │    │
-│  ├─ inspector        │   (procedural sprites,       │    │
-│  ├─ brain viewer     │    terrain + vegetation      │    │
-│  └─ genealogy        │    canvases, camera)         │    │
+│  ├─ inspector        │   (baked terrain, particle   │    │
+│  ├─ BrainScope       │    vegetation, procedural    │    │
+│  └─ genealogy        │    models, colour grade)     │    │
 │                      └──────────────▲───────────────┘    │
 │                                     │ snapshots          │
 │                      ┌──────────────┴───────────────┐    │
@@ -494,15 +551,18 @@ See `docs/ARCHITECTURE.md` and `docs/SIMULATION.md` for the full picture.
 
 ## Roadmap
 
-- **Further balance work** so a larger fraction of seeds thrive rather than merely
-  survive. `npm run balance` is the measurement tool.
-- **Broad-phase sensing** so tick cost stays flat into the thousands of animals.
-- **Social memory decay** driven from the tick loop.
+- **Population viability**: measure the dispersal fix on the same seeds, get
+  acceptance #29 green, add a real carrying capacity.
+- **Settlement stages and crises**: camp → village → town → city from measured
+  state; drought, cold, predators, crop disease, and visible feedback for the
+  observer's interventions.
+- **Smaller saves** so autosave survives a grown world.
+- **Broad-phase sensing** so tick cost stays flat into the thousands.
 - **Sexual reproduction for predators**, reusing the human mating machinery.
-- **Rust migration** of the neural update, genetic operations and spatial queries
-  behind Tauri commands. The `SimWorld` interface and the worker protocol exist
-  precisely so this can happen without touching the UI.
-- Multi-embryo pregnancies, partial observability, and terrain that humans modify.
+- **Rust migration** of the neural update behind Tauri commands; the `SimWorld`
+  interface and the worker protocol exist so this can happen without touching the UI.
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the working plan.
 
 ---
 
