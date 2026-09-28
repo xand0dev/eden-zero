@@ -14,9 +14,9 @@ The program is a set of 42 lab briefs, not a single stack, so the question is no
 
 | Lab | Title | How this project answers it |
 |---|---|---|
-| **14** | Cellular Automata Simulator | Superset. A 176×128 world of thousands of interacting agents with emergent population dynamics, not a fixed rule table. |
-| **13** | Physics Sandbox | Agents have continuous physiology — metabolism, thermoregulation, fatigue, injury — and the world is a closed ecology. |
-| **32** | Neural Net From Scratch | The brain is a 341-neuron sparse recurrent spiking network (64 sensory channels, 17 motors) with reward-modulated Hebbian learning, written from primitives. No ML library is used anywhere in the repository. |
+| **14** | Cellular Automata Simulator | **In spirit, not by rule table.** Emergent population dynamics from local interactions on a 176×128 world. The brief's Standard controls are present (start, pause, step, adjustable speed, live editing via the god tools) and so is its *Statistics Panel* side quest; the classic Game-of-Life patterns are not — this is an agent world, not a rule table. |
+| **13** | Physics Sandbox | Many interacting objects with spawn on demand, pause / resume / single-step, save / load and a configurable environment (temperature, time of day), simulation separated from rendering (it runs in a Web Worker). Side quests: *Fixed Timestep* (20 Hz, speed changes the number of ticks, never `dt`) and *Particle Storm* (up to 6 000 plants plus every inhabitant at 60 fps). Physics here is physiology — metabolism, thermoregulation, fatigue, injury — not rigid bodies. |
+| **32** | Neural Net From Scratch | **Same principle, different family of network.** A 341-neuron spiking network (leaky integrate-and-fire, 64 sensory channels, 17 motors) with reward-modulated Hebbian learning, written from primitives with no ML library anywhere. It does **not** implement the brief's Basic checklist — there is no autograd `Value` class and no backpropagation, because the learning rule is local and biological by design. What carries over: *from scratch*, and the *Visualize Internals* side quest, which the live brain view takes a long way. |
 | **23 / 27** | Real-Time Service / Multiplayer Browser Game | Shared-observation mode: an authoritative Node server, a hand-written RFC 6455 WebSocket implementation, and a binary snapshot protocol. |
 | **22** | SPA Frontend | React + Vite + PixiJS observatory. |
 | **42** | Life, The Universe, And Everything | The capstone, **Path A (synthesis)**. See `MANIFESTO.md` and the checklist below. |
