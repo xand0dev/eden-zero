@@ -10,7 +10,7 @@
  */
 import { World, DEFAULT_WORLD_OPTIONS } from '../src/simulation/world';
 import { DT } from '../src/shared/constants';
-import { MOTOR_NAMES } from '../src/simulation/brain/channels';
+import { MOTOR_COUNT, MOTOR_NAMES } from '../src/simulation/brain/channels';
 
 interface Args {
   ticks: number;
@@ -63,7 +63,7 @@ function main(): void {
   let maxHunger = 0;
   let speedSum = 0;
   let speedCount = 0;
-  const motorSum = new Array(12).fill(0);
+  const motorSum = new Array<number>(MOTOR_COUNT).fill(0);
 
   for (let t = 0; t < args.ticks; t++) {
     for (const human of world.humans) {

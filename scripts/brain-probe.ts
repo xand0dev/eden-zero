@@ -7,7 +7,20 @@ import { World, DEFAULT_WORLD_OPTIONS } from '../src/simulation/world';
 import { Rng } from '../src/simulation/rng';
 import { Brain } from '../src/simulation/brain/network';
 import { randomGenome } from '../src/simulation/genetics/genome';
-import { MOTOR_NAMES, MOTOR_START, MOD_START, RECURRENT_START, LOCAL_START } from '../src/simulation/brain/channels';
+import {
+  LOCAL_COUNT,
+  LOCAL_START,
+  MOD_COUNT,
+  MOD_START,
+  MOTOR_COUNT,
+  MOTOR_NAMES,
+  MOTOR_START,
+  NEURON_COUNT,
+  RECURRENT_COUNT,
+  RECURRENT_START,
+  S,
+  SENSORY_COUNT,
+} from '../src/simulation/brain/channels';
 
 const rng = new Rng('probe');
 
@@ -25,26 +38,26 @@ for (let i = 0; i < 3; i++) {
   let inRec = 0;
   for (let n = RECURRENT_START; n < MOD_START; n++) inRec += brain.inStart[n + 1] - brain.inStart[n];
   let inMot = 0;
-  for (let n = MOTOR_START; n < 256; n++) inMot += brain.inStart[n + 1] - brain.inStart[n];
+  for (let n = MOTOR_START; n < NEURON_COUNT; n++) inMot += brain.inStart[n + 1] - brain.inStart[n];
   console.log(
     `brain ${i}: syn=${stats.synapses} exc=${stats.excitatory} inh=${stats.inhibitory} ` +
       `mean|w|=${(sumAbs / brain.synCount).toFixed(4)} sumExc=${sumExc.toFixed(1)} ` +
-      `inPerRec=${(inRec / 132).toFixed(1)} inPerMotor=${(inMot / 12).toFixed(1)}`,
+      `inPerRec=${(inRec / RECURRENT_COUNT).toFixed(1)} inPerMotor=${(inMot / MOTOR_COUNT).toFixed(1)}`,
   );
 }
 
 console.log('\n=== dynamics with a synthetic sensory drive ===');
 const genome = randomGenome(rng, 0);
 const brain = new Brain(genome, rng);
-const sensory = new Float32Array(32);
-const motor = new Float32Array(12);
+const sensory = new Float32Array(SENSORY_COUNT);
+const motor = new Float32Array(MOTOR_COUNT);
 // A plausible mid-strength sensory pattern.
-sensory[21] = 0.6; // hunger
-sensory[22] = 0.4; // thirst
-sensory[0] = 0.45; // food.front
-sensory[4] = 0.3; // water.front
-sensory[20] = 0.7; // light
-sensory[31] = 0.5; // noise
+sensory[S.hunger] = 0.6;
+sensory[S.thirst] = 0.4;
+sensory[S.foodFront] = 0.45;
+sensory[S.waterFront] = 0.3;
+sensory[S.light] = 0.7;
+sensory[S.noise] = 0.5;
 
 for (let t = 0; t < 400; t++) {
   brain.step(sensory, 0);
@@ -52,7 +65,7 @@ for (let t = 0; t < 400; t++) {
   if (t % 50 === 0 || t === 399) {
     brain.readMotor(motor);
     let sensoryRate = 0;
-    for (let i = 0; i < 32; i++) sensoryRate += brain.rate[i];
+    for (let i = 0; i < SENSORY_COUNT; i++) sensoryRate += brain.rate[i];
     let localRate = 0;
     for (let i = LOCAL_START; i < RECURRENT_START; i++) localRate += brain.rate[i];
     let recRate = 0;
@@ -60,11 +73,11 @@ for (let t = 0; t < 400; t++) {
     let modRate = 0;
     for (let i = MOD_START; i < MOTOR_START; i++) modRate += brain.rate[i];
     let motorRate = 0;
-    for (let i = MOTOR_START; i < 256; i++) motorRate += brain.rate[i];
+    for (let i = MOTOR_START; i < NEURON_COUNT; i++) motorRate += brain.rate[i];
     console.log(
       `t=${String(t).padStart(3)} ` +
-        `rates: sens=${(sensoryRate / 32).toFixed(3)} local=${(localRate / 64).toFixed(3)} ` +
-        `rec=${(recRate / 132).toFixed(3)} mod=${(modRate / 16).toFixed(3)} mot=${(motorRate / 12).toFixed(3)} ` +
+        `rates: sens=${(sensoryRate / SENSORY_COUNT).toFixed(3)} local=${(localRate / LOCAL_COUNT).toFixed(3)} ` +
+        `rec=${(recRate / RECURRENT_COUNT).toFixed(3)} mod=${(modRate / MOD_COUNT).toFixed(3)} mot=${(motorRate / MOTOR_COUNT).toFixed(3)} ` +
         `| motorOut=${Array.from(motor)
           .map((v) => v.toFixed(2))
           .join(',')}`,

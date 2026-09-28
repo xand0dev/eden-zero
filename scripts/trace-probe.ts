@@ -9,7 +9,7 @@
  *   npm run trace
  */
 import { DEFAULT_WORLD_OPTIONS, World } from '../src/simulation/world';
-import { MOTOR_NAMES, MOTOR_START } from '../src/simulation/brain/channels';
+import { MOTOR_COUNT, MOTOR_NAMES, MOTOR_START } from '../src/simulation/brain/channels';
 
 const world = new World({ ...DEFAULT_WORLD_OPTIONS, seed: 'trace', initialPredators: 0 });
 
@@ -43,7 +43,7 @@ console.log(`  mean |weight|  ${(sumWeight / brain.synCount).toFixed(4)}`);
 
 // How many incoming synapses does each motor neuron have, and what do they carry?
 console.log('\nmotor neurons — incoming contribution profile');
-for (let m = 0; m < 12; m++) {
+for (let m = 0; m < MOTOR_COUNT; m++) {
   const target = MOTOR_START + m;
   const start = brain.inStart[target];
   const end = brain.inStart[target + 1];

@@ -1,0 +1,2346 @@
+{
+  "tool": "eden-zero-balance-parallel",
+  "version": 3,
+  "args": {
+    "seeds": [
+      "eden",
+      "orion",
+      "vela",
+      "lumen",
+      "tessera",
+      "auriga",
+      "kepler",
+      "solace"
+    ],
+    "ticks": 200000,
+    "predators": 2,
+    "humans": 8,
+    "jobs": 7
+  },
+  "notes": [
+    "Simulation numbers match a sequential run. Wall time and ticks/s are measured under CPU contention."
+  ],
+  "batchWallSeconds": 3140.6732254169997,
+  "rows": [
+    {
+      "seed": "eden",
+      "ticks": 200000,
+      "population": 689,
+      "peak": 689,
+      "troughAfterPeak": 689,
+      "extinctAtTick": null,
+      "births": 733,
+      "deaths": 52,
+      "generation": 5,
+      "birthsPerHour": 263.88,
+      "deathsPerHour": 18.720000000000002,
+      "plants": 6003,
+      "huts": 22,
+      "sites": 2,
+      "timber": 4351.505464131948,
+      "outcome": "thriving",
+      "fields": 14,
+      "sownFields": 7,
+      "ripeFields": 7,
+      "moistFields": 14,
+      "harvests": 543,
+      "sowings": 557,
+      "ripenings": 550,
+      "canals": 66,
+      "canalsDug": 66,
+      "canalsComplete": 66,
+      "canalsFlowing": 43,
+      "foodPiles": 1,
+      "foodOnGround": 0.33280068016693787,
+      "wildFood": 5717.924914030115,
+      "deathReasons": {
+        "starvation": 20,
+        "predation": 12,
+        "injuries": 2,
+        "dehydration": 9,
+        "old age": 9
+      },
+      "eventsMissed": 0,
+      "matingOpportunities": 964,
+      "matingPairings": 892,
+      "matings": 889,
+      "willingPerTick": 5.77146,
+      "wallTimeSeconds": 3140.491714708,
+      "ticksPerSecond": 63.68429474382352,
+      "samples": [
+        {
+          "tick": 0,
+          "population": 8,
+          "generation": 0,
+          "fields": 0,
+          "canalsFlowing": 0
+        },
+        {
+          "tick": 6000,
+          "population": 15,
+          "generation": 1,
+          "fields": 3,
+          "canalsFlowing": 1
+        },
+        {
+          "tick": 12000,
+          "population": 19,
+          "generation": 1,
+          "fields": 7,
+          "canalsFlowing": 13
+        },
+        {
+          "tick": 18000,
+          "population": 18,
+          "generation": 1,
+          "fields": 10,
+          "canalsFlowing": 15
+        },
+        {
+          "tick": 24000,
+          "population": 15,
+          "generation": 1,
+          "fields": 11,
+          "canalsFlowing": 17
+        },
+        {
+          "tick": 30000,
+          "population": 15,
+          "generation": 1,
+          "fields": 11,
+          "canalsFlowing": 19
+        },
+        {
+          "tick": 36000,
+          "population": 14,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 25
+        },
+        {
+          "tick": 42000,
+          "population": 14,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 48000,
+          "population": 14,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 35
+        },
+        {
+          "tick": 54000,
+          "population": 15,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 37
+        },
+        {
+          "tick": 60000,
+          "population": 20,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 37
+        },
+        {
+          "tick": 66000,
+          "population": 22,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 37
+        },
+        {
+          "tick": 72000,
+          "population": 27,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 78000,
+          "population": 29,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 84000,
+          "population": 30,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 90000,
+          "population": 33,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 96000,
+          "population": 35,
+          "generation": 3,
+          "fields": 14,
+          "canalsFlowing": 39
+        },
+        {
+          "tick": 102000,
+          "population": 41,
+          "generation": 3,
+          "fields": 14,
+          "canalsFlowing": 40
+        },
+        {
+          "tick": 108000,
+          "population": 48,
+          "generation": 3,
+          "fields": 14,
+          "canalsFlowing": 41
+        },
+        {
+          "tick": 114000,
+          "population": 59,
+          "generation": 3,
+          "fields": 14,
+          "canalsFlowing": 41
+        },
+        {
+          "tick": 120000,
+          "population": 69,
+          "generation": 3,
+          "fields": 14,
+          "canalsFlowing": 41
+        },
+        {
+          "tick": 126000,
+          "population": 77,
+          "generation": 3,
+          "fields": 14,
+          "canalsFlowing": 42
+        },
+        {
+          "tick": 132000,
+          "population": 86,
+          "generation": 3,
+          "fields": 14,
+          "canalsFlowing": 42
+        },
+        {
+          "tick": 138000,
+          "population": 97,
+          "generation": 4,
+          "fields": 14,
+          "canalsFlowing": 42
+        },
+        {
+          "tick": 144000,
+          "population": 114,
+          "generation": 4,
+          "fields": 14,
+          "canalsFlowing": 42
+        },
+        {
+          "tick": 150000,
+          "population": 139,
+          "generation": 4,
+          "fields": 14,
+          "canalsFlowing": 42
+        },
+        {
+          "tick": 156000,
+          "population": 173,
+          "generation": 4,
+          "fields": 14,
+          "canalsFlowing": 43
+        },
+        {
+          "tick": 162000,
+          "population": 212,
+          "generation": 4,
+          "fields": 14,
+          "canalsFlowing": 43
+        },
+        {
+          "tick": 168000,
+          "population": 256,
+          "generation": 4,
+          "fields": 14,
+          "canalsFlowing": 43
+        },
+        {
+          "tick": 174000,
+          "population": 311,
+          "generation": 4,
+          "fields": 14,
+          "canalsFlowing": 43
+        },
+        {
+          "tick": 180000,
+          "population": 366,
+          "generation": 5,
+          "fields": 14,
+          "canalsFlowing": 43
+        },
+        {
+          "tick": 186000,
+          "population": 447,
+          "generation": 5,
+          "fields": 14,
+          "canalsFlowing": 43
+        },
+        {
+          "tick": 192000,
+          "population": 532,
+          "generation": 5,
+          "fields": 14,
+          "canalsFlowing": 43
+        },
+        {
+          "tick": 198000,
+          "population": 641,
+          "generation": 5,
+          "fields": 14,
+          "canalsFlowing": 43
+        }
+      ]
+    },
+    {
+      "seed": "orion",
+      "ticks": 200000,
+      "population": 0,
+      "peak": 15,
+      "troughAfterPeak": 0,
+      "extinctAtTick": 127037,
+      "births": 11,
+      "deaths": 19,
+      "generation": 2,
+      "birthsPerHour": 3.96,
+      "deathsPerHour": 6.84,
+      "plants": 6004,
+      "huts": 22,
+      "sites": 2,
+      "timber": 5827.7739009095585,
+      "outcome": "extinct",
+      "fields": 15,
+      "sownFields": 0,
+      "ripeFields": 15,
+      "moistFields": 15,
+      "harvests": 458,
+      "sowings": 473,
+      "ripenings": 473,
+      "canals": 64,
+      "canalsDug": 64,
+      "canalsComplete": 64,
+      "canalsFlowing": 56,
+      "foodPiles": 0,
+      "foodOnGround": 0,
+      "wildFood": 5989.9181173629395,
+      "deathReasons": {
+        "starvation": 9,
+        "predation": 7,
+        "old age": 2,
+        "dehydration": 1
+      },
+      "eventsMissed": 0,
+      "matingOpportunities": 22,
+      "matingPairings": 21,
+      "matings": 21,
+      "willingPerTick": 0.54891,
+      "wallTimeSeconds": 203.36848979200002,
+      "ticksPerSecond": 983.4365205964541,
+      "samples": [
+        {
+          "tick": 0,
+          "population": 8,
+          "generation": 0,
+          "fields": 0,
+          "canalsFlowing": 0
+        },
+        {
+          "tick": 6000,
+          "population": 13,
+          "generation": 1,
+          "fields": 1,
+          "canalsFlowing": 5
+        },
+        {
+          "tick": 12000,
+          "population": 15,
+          "generation": 1,
+          "fields": 5,
+          "canalsFlowing": 17
+        },
+        {
+          "tick": 18000,
+          "population": 14,
+          "generation": 1,
+          "fields": 7,
+          "canalsFlowing": 21
+        },
+        {
+          "tick": 24000,
+          "population": 12,
+          "generation": 1,
+          "fields": 10,
+          "canalsFlowing": 25
+        },
+        {
+          "tick": 30000,
+          "population": 11,
+          "generation": 1,
+          "fields": 12,
+          "canalsFlowing": 35
+        },
+        {
+          "tick": 36000,
+          "population": 9,
+          "generation": 1,
+          "fields": 12,
+          "canalsFlowing": 42
+        },
+        {
+          "tick": 42000,
+          "population": 8,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 48000,
+          "population": 6,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 48
+        },
+        {
+          "tick": 54000,
+          "population": 6,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 48
+        },
+        {
+          "tick": 60000,
+          "population": 6,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 50
+        },
+        {
+          "tick": 66000,
+          "population": 6,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 53
+        },
+        {
+          "tick": 72000,
+          "population": 7,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 53
+        },
+        {
+          "tick": 78000,
+          "population": 6,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 53
+        },
+        {
+          "tick": 84000,
+          "population": 4,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 53
+        },
+        {
+          "tick": 90000,
+          "population": 4,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 53
+        },
+        {
+          "tick": 96000,
+          "population": 4,
+          "generation": 2,
+          "fields": 14,
+          "canalsFlowing": 54
+        },
+        {
+          "tick": 102000,
+          "population": 3,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 108000,
+          "population": 2,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 114000,
+          "population": 2,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 120000,
+          "population": 2,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 126000,
+          "population": 1,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 132000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 138000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 144000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 150000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 156000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 162000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 168000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 174000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 180000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 186000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 192000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 198000,
+          "population": 0,
+          "generation": 2,
+          "fields": 15,
+          "canalsFlowing": 56
+        }
+      ]
+    },
+    {
+      "seed": "vela",
+      "ticks": 200000,
+      "population": 0,
+      "peak": 12,
+      "troughAfterPeak": 0,
+      "extinctAtTick": 96246,
+      "births": 9,
+      "deaths": 17,
+      "generation": 1,
+      "birthsPerHour": 3.24,
+      "deathsPerHour": 6.12,
+      "plants": 6000,
+      "huts": 10,
+      "sites": 13,
+      "timber": 5793.915906395683,
+      "outcome": "extinct",
+      "fields": 23,
+      "sownFields": 9,
+      "ripeFields": 14,
+      "moistFields": 14,
+      "harvests": 148,
+      "sowings": 171,
+      "ripenings": 162,
+      "canals": 86,
+      "canalsDug": 86,
+      "canalsComplete": 86,
+      "canalsFlowing": 38,
+      "foodPiles": 0,
+      "foodOnGround": 0,
+      "wildFood": 5896.8208944010485,
+      "deathReasons": {
+        "predation": 10,
+        "exposure": 1,
+        "dehydration": 5,
+        "starvation": 1
+      },
+      "eventsMissed": 0,
+      "matingOpportunities": 12,
+      "matingPairings": 11,
+      "matings": 11,
+      "willingPerTick": 0.30375,
+      "wallTimeSeconds": 137.9490075,
+      "ticksPerSecond": 1449.8110832729262,
+      "samples": [
+        {
+          "tick": 0,
+          "population": 8,
+          "generation": 0,
+          "fields": 0,
+          "canalsFlowing": 0
+        },
+        {
+          "tick": 6000,
+          "population": 12,
+          "generation": 1,
+          "fields": 3,
+          "canalsFlowing": 0
+        },
+        {
+          "tick": 12000,
+          "population": 12,
+          "generation": 1,
+          "fields": 6,
+          "canalsFlowing": 8
+        },
+        {
+          "tick": 18000,
+          "population": 7,
+          "generation": 1,
+          "fields": 13,
+          "canalsFlowing": 9
+        },
+        {
+          "tick": 24000,
+          "population": 6,
+          "generation": 1,
+          "fields": 16,
+          "canalsFlowing": 11
+        },
+        {
+          "tick": 30000,
+          "population": 4,
+          "generation": 1,
+          "fields": 16,
+          "canalsFlowing": 15
+        },
+        {
+          "tick": 36000,
+          "population": 3,
+          "generation": 1,
+          "fields": 16,
+          "canalsFlowing": 16
+        },
+        {
+          "tick": 42000,
+          "population": 3,
+          "generation": 1,
+          "fields": 17,
+          "canalsFlowing": 19
+        },
+        {
+          "tick": 48000,
+          "population": 1,
+          "generation": 1,
+          "fields": 18,
+          "canalsFlowing": 20
+        },
+        {
+          "tick": 54000,
+          "population": 1,
+          "generation": 1,
+          "fields": 18,
+          "canalsFlowing": 24
+        },
+        {
+          "tick": 60000,
+          "population": 1,
+          "generation": 1,
+          "fields": 18,
+          "canalsFlowing": 25
+        },
+        {
+          "tick": 66000,
+          "population": 1,
+          "generation": 1,
+          "fields": 21,
+          "canalsFlowing": 28
+        },
+        {
+          "tick": 72000,
+          "population": 1,
+          "generation": 1,
+          "fields": 21,
+          "canalsFlowing": 30
+        },
+        {
+          "tick": 78000,
+          "population": 1,
+          "generation": 1,
+          "fields": 22,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 84000,
+          "population": 1,
+          "generation": 1,
+          "fields": 22,
+          "canalsFlowing": 36
+        },
+        {
+          "tick": 90000,
+          "population": 1,
+          "generation": 1,
+          "fields": 22,
+          "canalsFlowing": 37
+        },
+        {
+          "tick": 96000,
+          "population": 1,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 102000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 108000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 114000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 120000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 126000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 132000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 138000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 144000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 150000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 156000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 162000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 168000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 174000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 180000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 186000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 192000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 198000,
+          "population": 0,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 38
+        }
+      ]
+    },
+    {
+      "seed": "lumen",
+      "ticks": 200000,
+      "population": 248,
+      "peak": 248,
+      "troughAfterPeak": 248,
+      "extinctAtTick": null,
+      "births": 337,
+      "deaths": 97,
+      "generation": 5,
+      "birthsPerHour": 121.32000000000001,
+      "deathsPerHour": 34.92,
+      "plants": 6000,
+      "huts": 29,
+      "sites": 0,
+      "timber": 5000.033304576348,
+      "outcome": "thriving",
+      "fields": 21,
+      "sownFields": 21,
+      "ripeFields": 0,
+      "moistFields": 16,
+      "harvests": 1841,
+      "sowings": 1862,
+      "ripenings": 1841,
+      "canals": 96,
+      "canalsDug": 96,
+      "canalsComplete": 96,
+      "canalsFlowing": 64,
+      "foodPiles": 4,
+      "foodOnGround": 2.0690801007396633,
+      "wildFood": 5871.146275896761,
+      "deathReasons": {
+        "predation": 3,
+        "starvation": 36,
+        "dehydration": 45,
+        "old age": 6,
+        "exposure": 4,
+        "injuries": 3
+      },
+      "eventsMissed": 0,
+      "matingOpportunities": 475,
+      "matingPairings": 475,
+      "matings": 475,
+      "willingPerTick": 4.07056,
+      "wallTimeSeconds": 1424.1743889169998,
+      "ticksPerSecond": 140.4322402905224,
+      "samples": [
+        {
+          "tick": 0,
+          "population": 8,
+          "generation": 0,
+          "fields": 0,
+          "canalsFlowing": 0
+        },
+        {
+          "tick": 6000,
+          "population": 12,
+          "generation": 1,
+          "fields": 7,
+          "canalsFlowing": 1
+        },
+        {
+          "tick": 12000,
+          "population": 11,
+          "generation": 1,
+          "fields": 12,
+          "canalsFlowing": 8
+        },
+        {
+          "tick": 18000,
+          "population": 13,
+          "generation": 1,
+          "fields": 18,
+          "canalsFlowing": 18
+        },
+        {
+          "tick": 24000,
+          "population": 12,
+          "generation": 1,
+          "fields": 20,
+          "canalsFlowing": 24
+        },
+        {
+          "tick": 30000,
+          "population": 11,
+          "generation": 1,
+          "fields": 21,
+          "canalsFlowing": 33
+        },
+        {
+          "tick": 36000,
+          "population": 12,
+          "generation": 1,
+          "fields": 21,
+          "canalsFlowing": 42
+        },
+        {
+          "tick": 42000,
+          "population": 13,
+          "generation": 1,
+          "fields": 21,
+          "canalsFlowing": 43
+        },
+        {
+          "tick": 48000,
+          "population": 16,
+          "generation": 2,
+          "fields": 21,
+          "canalsFlowing": 48
+        },
+        {
+          "tick": 54000,
+          "population": 15,
+          "generation": 2,
+          "fields": 21,
+          "canalsFlowing": 52
+        },
+        {
+          "tick": 60000,
+          "population": 16,
+          "generation": 2,
+          "fields": 21,
+          "canalsFlowing": 58
+        },
+        {
+          "tick": 66000,
+          "population": 18,
+          "generation": 2,
+          "fields": 21,
+          "canalsFlowing": 62
+        },
+        {
+          "tick": 72000,
+          "population": 22,
+          "generation": 2,
+          "fields": 21,
+          "canalsFlowing": 63
+        },
+        {
+          "tick": 78000,
+          "population": 24,
+          "generation": 2,
+          "fields": 21,
+          "canalsFlowing": 63
+        },
+        {
+          "tick": 84000,
+          "population": 24,
+          "generation": 2,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 90000,
+          "population": 24,
+          "generation": 2,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 96000,
+          "population": 27,
+          "generation": 3,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 102000,
+          "population": 32,
+          "generation": 3,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 108000,
+          "population": 38,
+          "generation": 3,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 114000,
+          "population": 44,
+          "generation": 3,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 120000,
+          "population": 51,
+          "generation": 3,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 126000,
+          "population": 60,
+          "generation": 3,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 132000,
+          "population": 67,
+          "generation": 3,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 138000,
+          "population": 76,
+          "generation": 4,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 144000,
+          "population": 84,
+          "generation": 4,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 150000,
+          "population": 96,
+          "generation": 4,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 156000,
+          "population": 102,
+          "generation": 4,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 162000,
+          "population": 112,
+          "generation": 4,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 168000,
+          "population": 129,
+          "generation": 4,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 174000,
+          "population": 142,
+          "generation": 4,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 180000,
+          "population": 163,
+          "generation": 4,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 186000,
+          "population": 184,
+          "generation": 5,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 192000,
+          "population": 215,
+          "generation": 5,
+          "fields": 21,
+          "canalsFlowing": 64
+        },
+        {
+          "tick": 198000,
+          "population": 243,
+          "generation": 5,
+          "fields": 21,
+          "canalsFlowing": 64
+        }
+      ]
+    },
+    {
+      "seed": "tessera",
+      "ticks": 200000,
+      "population": 0,
+      "peak": 21,
+      "troughAfterPeak": 0,
+      "extinctAtTick": 197805,
+      "births": 15,
+      "deaths": 23,
+      "generation": 1,
+      "birthsPerHour": 5.4,
+      "deathsPerHour": 8.280000000000001,
+      "plants": 6009,
+      "huts": 25,
+      "sites": 3,
+      "timber": 5879.306955881791,
+      "outcome": "extinct",
+      "fields": 24,
+      "sownFields": 10,
+      "ripeFields": 14,
+      "moistFields": 14,
+      "harvests": 242,
+      "sowings": 266,
+      "ripenings": 256,
+      "canals": 88,
+      "canalsDug": 86,
+      "canalsComplete": 86,
+      "canalsFlowing": 31,
+      "foodPiles": 0,
+      "foodOnGround": 0,
+      "wildFood": 5883.812728093239,
+      "deathReasons": {
+        "predation": 10,
+        "dehydration": 10,
+        "starvation": 2,
+        "old age": 1
+      },
+      "eventsMissed": 0,
+      "matingOpportunities": 16,
+      "matingPairings": 15,
+      "matings": 15,
+      "willingPerTick": 0.57304,
+      "wallTimeSeconds": 171.718494625,
+      "ticksPerSecond": 1164.696909536514,
+      "samples": [
+        {
+          "tick": 0,
+          "population": 8,
+          "generation": 0,
+          "fields": 0,
+          "canalsFlowing": 0
+        },
+        {
+          "tick": 6000,
+          "population": 16,
+          "generation": 1,
+          "fields": 3,
+          "canalsFlowing": 1
+        },
+        {
+          "tick": 12000,
+          "population": 19,
+          "generation": 1,
+          "fields": 13,
+          "canalsFlowing": 6
+        },
+        {
+          "tick": 18000,
+          "population": 21,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 11
+        },
+        {
+          "tick": 24000,
+          "population": 18,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 14
+        },
+        {
+          "tick": 30000,
+          "population": 15,
+          "generation": 1,
+          "fields": 18,
+          "canalsFlowing": 19
+        },
+        {
+          "tick": 36000,
+          "population": 10,
+          "generation": 1,
+          "fields": 21,
+          "canalsFlowing": 20
+        },
+        {
+          "tick": 42000,
+          "population": 8,
+          "generation": 1,
+          "fields": 22,
+          "canalsFlowing": 23
+        },
+        {
+          "tick": 48000,
+          "population": 5,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 24
+        },
+        {
+          "tick": 54000,
+          "population": 5,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 28
+        },
+        {
+          "tick": 60000,
+          "population": 4,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 29
+        },
+        {
+          "tick": 66000,
+          "population": 2,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 29
+        },
+        {
+          "tick": 72000,
+          "population": 2,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 78000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 84000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 90000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 96000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 102000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 108000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 114000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 120000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 126000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 132000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 138000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 144000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 150000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 156000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 162000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 168000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 174000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 180000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 186000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 192000,
+          "population": 1,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        },
+        {
+          "tick": 198000,
+          "population": 0,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 31
+        }
+      ]
+    },
+    {
+      "seed": "auriga",
+      "ticks": 200000,
+      "population": 46,
+      "peak": 46,
+      "troughAfterPeak": 46,
+      "extinctAtTick": null,
+      "births": 72,
+      "deaths": 34,
+      "generation": 4,
+      "birthsPerHour": 25.92,
+      "deathsPerHour": 12.24,
+      "plants": 6003,
+      "huts": 31,
+      "sites": 0,
+      "timber": 5678.704121354054,
+      "outcome": "thriving",
+      "fields": 25,
+      "sownFields": 22,
+      "ripeFields": 2,
+      "moistFields": 10,
+      "harvests": 557,
+      "sowings": 581,
+      "ripenings": 559,
+      "canals": 82,
+      "canalsDug": 82,
+      "canalsComplete": 82,
+      "canalsFlowing": 22,
+      "foodPiles": 0,
+      "foodOnGround": 0,
+      "wildFood": 5865.502438689963,
+      "deathReasons": {
+        "predation": 10,
+        "dehydration": 18,
+        "starvation": 3,
+        "old age": 3
+      },
+      "eventsMissed": 0,
+      "matingOpportunities": 206,
+      "matingPairings": 200,
+      "matings": 200,
+      "willingPerTick": 1.893605,
+      "wallTimeSeconds": 492.299051625,
+      "ticksPerSecond": 406.25713037600246,
+      "samples": [
+        {
+          "tick": 0,
+          "population": 8,
+          "generation": 0,
+          "fields": 0,
+          "canalsFlowing": 0
+        },
+        {
+          "tick": 6000,
+          "population": 13,
+          "generation": 1,
+          "fields": 6,
+          "canalsFlowing": 3
+        },
+        {
+          "tick": 12000,
+          "population": 14,
+          "generation": 1,
+          "fields": 7,
+          "canalsFlowing": 7
+        },
+        {
+          "tick": 18000,
+          "population": 12,
+          "generation": 1,
+          "fields": 17,
+          "canalsFlowing": 11
+        },
+        {
+          "tick": 24000,
+          "population": 12,
+          "generation": 1,
+          "fields": 22,
+          "canalsFlowing": 11
+        },
+        {
+          "tick": 30000,
+          "population": 11,
+          "generation": 1,
+          "fields": 23,
+          "canalsFlowing": 13
+        },
+        {
+          "tick": 36000,
+          "population": 11,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 17
+        },
+        {
+          "tick": 42000,
+          "population": 10,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 20
+        },
+        {
+          "tick": 48000,
+          "population": 10,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 20
+        },
+        {
+          "tick": 54000,
+          "population": 7,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 21
+        },
+        {
+          "tick": 60000,
+          "population": 7,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 66000,
+          "population": 6,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 72000,
+          "population": 6,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 78000,
+          "population": 7,
+          "generation": 2,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 84000,
+          "population": 10,
+          "generation": 2,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 90000,
+          "population": 11,
+          "generation": 2,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 96000,
+          "population": 11,
+          "generation": 2,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 102000,
+          "population": 10,
+          "generation": 2,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 108000,
+          "population": 10,
+          "generation": 2,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 114000,
+          "population": 11,
+          "generation": 2,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 120000,
+          "population": 13,
+          "generation": 3,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 126000,
+          "population": 12,
+          "generation": 3,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 132000,
+          "population": 14,
+          "generation": 3,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 138000,
+          "population": 16,
+          "generation": 3,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 144000,
+          "population": 19,
+          "generation": 3,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 150000,
+          "population": 20,
+          "generation": 3,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 156000,
+          "population": 20,
+          "generation": 3,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 162000,
+          "population": 23,
+          "generation": 4,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 168000,
+          "population": 23,
+          "generation": 4,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 174000,
+          "population": 23,
+          "generation": 4,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 180000,
+          "population": 26,
+          "generation": 4,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 186000,
+          "population": 31,
+          "generation": 4,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 192000,
+          "population": 38,
+          "generation": 4,
+          "fields": 25,
+          "canalsFlowing": 22
+        },
+        {
+          "tick": 198000,
+          "population": 42,
+          "generation": 4,
+          "fields": 25,
+          "canalsFlowing": 22
+        }
+      ]
+    },
+    {
+      "seed": "kepler",
+      "ticks": 200000,
+      "population": 0,
+      "peak": 14,
+      "troughAfterPeak": 0,
+      "extinctAtTick": 99440,
+      "births": 12,
+      "deaths": 20,
+      "generation": 1,
+      "birthsPerHour": 4.32,
+      "deathsPerHour": 7.2,
+      "plants": 6004,
+      "huts": 38,
+      "sites": 2,
+      "timber": 5639.422932388762,
+      "outcome": "extinct",
+      "fields": 25,
+      "sownFields": 6,
+      "ripeFields": 19,
+      "moistFields": 19,
+      "harvests": 314,
+      "sowings": 339,
+      "ripenings": 333,
+      "canals": 96,
+      "canalsDug": 92,
+      "canalsComplete": 92,
+      "canalsFlowing": 56,
+      "foodPiles": 0,
+      "foodOnGround": 0,
+      "wildFood": 5874.228772592992,
+      "deathReasons": {
+        "predation": 2,
+        "starvation": 11,
+        "dehydration": 7
+      },
+      "eventsMissed": 0,
+      "matingOpportunities": 18,
+      "matingPairings": 17,
+      "matings": 17,
+      "willingPerTick": 0.297535,
+      "wallTimeSeconds": 117.777426,
+      "ticksPerSecond": 1698.118279474031,
+      "samples": [
+        {
+          "tick": 0,
+          "population": 8,
+          "generation": 0,
+          "fields": 0,
+          "canalsFlowing": 0
+        },
+        {
+          "tick": 6000,
+          "population": 12,
+          "generation": 1,
+          "fields": 3,
+          "canalsFlowing": 3
+        },
+        {
+          "tick": 12000,
+          "population": 12,
+          "generation": 1,
+          "fields": 7,
+          "canalsFlowing": 17
+        },
+        {
+          "tick": 18000,
+          "population": 11,
+          "generation": 1,
+          "fields": 7,
+          "canalsFlowing": 23
+        },
+        {
+          "tick": 24000,
+          "population": 8,
+          "generation": 1,
+          "fields": 15,
+          "canalsFlowing": 33
+        },
+        {
+          "tick": 30000,
+          "population": 7,
+          "generation": 1,
+          "fields": 17,
+          "canalsFlowing": 35
+        },
+        {
+          "tick": 36000,
+          "population": 6,
+          "generation": 1,
+          "fields": 17,
+          "canalsFlowing": 36
+        },
+        {
+          "tick": 42000,
+          "population": 6,
+          "generation": 1,
+          "fields": 18,
+          "canalsFlowing": 37
+        },
+        {
+          "tick": 48000,
+          "population": 5,
+          "generation": 1,
+          "fields": 22,
+          "canalsFlowing": 39
+        },
+        {
+          "tick": 54000,
+          "population": 5,
+          "generation": 1,
+          "fields": 22,
+          "canalsFlowing": 44
+        },
+        {
+          "tick": 60000,
+          "population": 5,
+          "generation": 1,
+          "fields": 22,
+          "canalsFlowing": 46
+        },
+        {
+          "tick": 66000,
+          "population": 4,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 52
+        },
+        {
+          "tick": 72000,
+          "population": 3,
+          "generation": 1,
+          "fields": 24,
+          "canalsFlowing": 52
+        },
+        {
+          "tick": 78000,
+          "population": 3,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 53
+        },
+        {
+          "tick": 84000,
+          "population": 3,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 54
+        },
+        {
+          "tick": 90000,
+          "population": 2,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 54
+        },
+        {
+          "tick": 96000,
+          "population": 2,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 55
+        },
+        {
+          "tick": 102000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 108000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 114000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 120000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 126000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 132000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 138000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 144000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 150000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 156000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 162000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 168000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 174000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 180000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 186000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 192000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        },
+        {
+          "tick": 198000,
+          "population": 0,
+          "generation": 1,
+          "fields": 25,
+          "canalsFlowing": 56
+        }
+      ]
+    },
+    {
+      "seed": "solace",
+      "ticks": 200000,
+      "population": 1,
+      "peak": 19,
+      "troughAfterPeak": 1,
+      "extinctAtTick": null,
+      "births": 23,
+      "deaths": 30,
+      "generation": 2,
+      "birthsPerHour": 8.280000000000001,
+      "deathsPerHour": 10.8,
+      "plants": 6001,
+      "huts": 32,
+      "sites": 0,
+      "timber": 5575.520043458219,
+      "outcome": "declining",
+      "fields": 16,
+      "sownFields": 3,
+      "ripeFields": 13,
+      "moistFields": 14,
+      "harvests": 648,
+      "sowings": 664,
+      "ripenings": 661,
+      "canals": 78,
+      "canalsDug": 78,
+      "canalsComplete": 78,
+      "canalsFlowing": 45,
+      "foodPiles": 1,
+      "foodOnGround": 1.6180000000001962,
+      "wildFood": 5838.937009768995,
+      "deathReasons": {
+        "injuries": 11,
+        "dehydration": 12,
+        "starvation": 5,
+        "old age": 2
+      },
+      "eventsMissed": 0,
+      "matingOpportunities": 59,
+      "matingPairings": 56,
+      "matings": 56,
+      "willingPerTick": 0.89891,
+      "wallTimeSeconds": 226.709306542,
+      "ticksPerSecond": 882.1869867214655,
+      "samples": [
+        {
+          "tick": 0,
+          "population": 8,
+          "generation": 0,
+          "fields": 0,
+          "canalsFlowing": 0
+        },
+        {
+          "tick": 6000,
+          "population": 13,
+          "generation": 1,
+          "fields": 2,
+          "canalsFlowing": 3
+        },
+        {
+          "tick": 12000,
+          "population": 16,
+          "generation": 1,
+          "fields": 4,
+          "canalsFlowing": 10
+        },
+        {
+          "tick": 18000,
+          "population": 17,
+          "generation": 1,
+          "fields": 5,
+          "canalsFlowing": 17
+        },
+        {
+          "tick": 24000,
+          "population": 16,
+          "generation": 1,
+          "fields": 9,
+          "canalsFlowing": 23
+        },
+        {
+          "tick": 30000,
+          "population": 17,
+          "generation": 1,
+          "fields": 12,
+          "canalsFlowing": 30
+        },
+        {
+          "tick": 36000,
+          "population": 18,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 35
+        },
+        {
+          "tick": 42000,
+          "population": 15,
+          "generation": 1,
+          "fields": 14,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 48000,
+          "population": 14,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 38
+        },
+        {
+          "tick": 54000,
+          "population": 13,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 39
+        },
+        {
+          "tick": 60000,
+          "population": 13,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 41
+        },
+        {
+          "tick": 66000,
+          "population": 13,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 41
+        },
+        {
+          "tick": 72000,
+          "population": 12,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 44
+        },
+        {
+          "tick": 78000,
+          "population": 6,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 44
+        },
+        {
+          "tick": 84000,
+          "population": 6,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 44
+        },
+        {
+          "tick": 90000,
+          "population": 3,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 96000,
+          "population": 2,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 102000,
+          "population": 2,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 108000,
+          "population": 2,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 114000,
+          "population": 2,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 120000,
+          "population": 2,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 126000,
+          "population": 2,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 132000,
+          "population": 2,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 138000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 144000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 150000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 156000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 162000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 168000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 174000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 180000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 186000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 192000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        },
+        {
+          "tick": 198000,
+          "population": 1,
+          "generation": 2,
+          "fields": 16,
+          "canalsFlowing": 45
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "seeds": 8,
+    "ticks": 1600000,
+    "survived": 4,
+    "birthsAtLeastDeaths": 3,
+    "meanFinalPopulation": 123,
+    "deepestGeneration": 5,
+    "seedsReachingGen2": 5,
+    "outcomes": {
+      "thriving": 3,
+      "extinct": 4,
+      "declining": 1
+    },
+    "hutsBuilt": 209,
+    "seedsWithHuts": 8,
+    "fieldsFounded": 163,
+    "sownFields": 78,
+    "ripeFields": 84,
+    "sowings": 4913,
+    "ripenings": 4835,
+    "harvests": 4751,
+    "canals": 656,
+    "canalsDug": 650,
+    "canalsComplete": 650,
+    "canalsFlowing": 355,
+    "foodOnGround": 4.019880780906798,
+    "deathReasons": {
+      "starvation": 87,
+      "predation": 54,
+      "injuries": 16,
+      "dehydration": 107,
+      "old age": 23,
+      "exposure": 5
+    },
+    "eventsMissed": 0,
+    "wallTimeSeconds": 5914.487879709,
+    "ticksPerSecond": 270.5221538265663
+  }
+}

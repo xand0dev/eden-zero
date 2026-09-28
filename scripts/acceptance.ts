@@ -11,7 +11,7 @@
 import { DEFAULT_WORLD_OPTIONS, World } from '../src/simulation/world';
 import { DT, SIM_HZ, SPEED_TICK_BUDGET } from '../src/shared/constants';
 import { LifeStage, Sex } from '../src/shared/types';
-import { MOTOR_NAMES } from '../src/simulation/brain/channels';
+import { MOTOR_COUNT, MOTOR_NAMES, NEURON_COUNT } from '../src/simulation/brain/channels';
 import { wrapSave, unwrapSave } from '../src/simulation/persistence/save';
 
 const results: Array<{ id: number; label: string; status: 'PASS' | 'FAIL' | 'MANUAL'; detail: string }> = [];
@@ -53,7 +53,7 @@ const startPositions = new Map(world.humans.map((h) => [h.id, { x: h.x, y: h.y }
 let sawEat = false;
 let sawDrink = false;
 let motorEnergy = 0;
-const motorTotals = new Array(12).fill(0);
+const motorTotals = new Array<number>(MOTOR_COUNT).fill(0);
 let motorSamples = 0;
 const dayPhases = new Set<number>();
 let movedTotal = 0;
@@ -64,7 +64,7 @@ for (let i = 0; i < 6000; i++) {
   for (const human of world.humans) {
     if (human.lastEatTick > 0) sawEat = true;
     if (human.lastDrinkTick > 0) sawDrink = true;
-    for (let m = 0; m < 12; m++) {
+    for (let m = 0; m < MOTOR_COUNT; m++) {
       motorTotals[m] += human.motor[m];
       motorEnergy += human.motor[m];
     }
@@ -83,7 +83,7 @@ check(
   7,
   'Neural networks generate outputs',
   motorTotals.some((total) => total / motorSamples > 0.02) && motorEnergy > 0,
-  `mean motor output ${(motorEnergy / (motorSamples * 12)).toFixed(3)}`,
+  `mean motor output ${(motorEnergy / (motorSamples * MOTOR_COUNT)).toFixed(3)}`,
 );
 check(8, 'Humans consume food and water', sawEat && sawDrink, `eat=${sawEat} drink=${sawDrink}`);
 check(9, 'Day/night cycle advances', dayPhases.size > 10, `${dayPhases.size} distinct day phases`);
@@ -137,15 +137,15 @@ check(
   'Inspector reports full state',
   detail !== null &&
     detail.genome.length > 20 &&
-    detail.motor.length === 12 &&
-    detail.neuronCount === 256,
+    detail.motor.length === MOTOR_COUNT &&
+    detail.neuronCount === NEURON_COUNT,
   `${detail?.genome.length} genes, ${detail?.synapseCount} synapses`,
 );
 const brainView = world.brainView(probeHuman.id);
 check(
   18,
   'Live brain activity is visible',
-  brainView !== null && brainView.activity.length === 256 && brainView.stats.activeNeurons > 0,
+  brainView !== null && brainView.activity.length === NEURON_COUNT && brainView.stats.activeNeurons > 0,
   `${brainView?.stats.activeNeurons} active neurons, mean ${brainView?.stats.meanActivity.toFixed(3)}`,
 );
 const explanation = world.explain(probeHuman.id);

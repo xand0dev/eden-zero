@@ -16,6 +16,8 @@
     "test:watch": "./node_modules/.bin/vitest",
     "sim": "./node_modules/.bin/tsx scripts/simulate.ts",
     "balance": "./node_modules/.bin/tsx scripts/balance.ts",
+    "balance:parallel": "./node_modules/.bin/tsx scripts/balance-parallel.ts",
+    "probe:population": "./node_modules/.bin/tsx scripts/population-probe.ts",
     "brain": "./node_modules/.bin/tsx scripts/brain-probe.ts",
     "predator": "./node_modules/.bin/tsx scripts/predator-probe.ts",
     "accept": "./node_modules/.bin/tsx scripts/acceptance.ts",
