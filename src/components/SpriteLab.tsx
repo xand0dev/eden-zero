@@ -2,72 +2,42 @@ import { useEffect, useRef } from 'react';
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { HumanoidSprite } from '../render/humanoid';
 import { StructureSprite } from '../render/structure';
-import { CULTIVATION_COLORS, STRUCTURE_COLORS, outlineOf } from '../render/style';
+import { VegetationLayer } from '../render/vegetation';
+import { CultivationLayer } from '../render/cultivation';
 import { MOTOR_COUNT, MOTOR_NAMES } from '../simulation/brain/channels';
+import { EntityKind } from '../shared/types';
+import { PlantSpecies } from '../simulation/entities/plant';
+import type { EntityView } from '../worker/client';
+import type { CanalView, FieldView } from '../shared/types';
 
 /**
- * Sprite lab — every model in the game, laid out on its own.
+ * Sprite lab — every model in the game, at the world's own scale.
  *
- * This exists because a sprite can look fine in isolation and wrong in the
- * world, and the reverse. Judging a hut from a screenshot of a village is
- * guesswork; judging it next to every other model at the same scale is not.
+ * Everything here is drawn by the same classes the world renderer uses — the
+ * vegetation atlas, the cultivation layer, the roundhouse and the creature rigs
+ * — at one uniform scale on a patch of meadow. A lab that draws its own copies
+ * drifts from the game; this one cannot.
  *
  * Open with `?lab=1`.
  */
 
-const CELL = 130;
-const COLS = 7;
+/** Pixels per world tile in the lab. One scale for everything. */
+const SCALE = 38;
+/** Human sprites are drawn at this multiple of body size, as in the renderer. */
+const SPRITE_SCALE = 1.45;
 
 function label(text: string, x: number, y: number): Text {
   const node = new Text({
     text,
-    style: new TextStyle({
-      fontFamily: 'ui-monospace, monospace',
-      fontSize: 11,
-      fill: '#8fa3b5',
-    }),
+    style: new TextStyle({ fontFamily: 'ui-monospace, monospace', fontSize: 11, fill: '#d6e2ea' }),
   });
+  node.anchor.set(0.5, 0);
   node.position.set(x, y);
   return node;
 }
 
-/** A plant drawn exactly as the renderer draws it, so the lab cannot drift. */
-function plantSprite(
-  species: 'grass' | 'bush' | 'tree' | 'stump' | 'food',
-  food = 0.8,
-  timber = 1,
-): Graphics {
-  const g = new Graphics();
-  const outlineWidth = 0.05;
-  if (species === 'tree' || species === 'stump') {
-    const radius = 1.05 * (0.4 + 0.6 * timber);
-    if (species === 'stump' || timber < 0.2) {
-      g.circle(0, 0, radius).fill({ color: 0x6b4f2a }).stroke({ color: outlineOf(0x6b4f2a), width: outlineWidth });
-    } else {
-      const rim = 0x2f4a2c;
-      const crown = 0x4a6b3a;
-      g.circle(0, 0, radius).fill({ color: rim }).stroke({ color: outlineOf(rim), width: outlineWidth });
-      g.circle(-radius * 0.14, -radius * 0.14, radius * 0.68).fill({ color: crown });
-    }
-  } else if (species === 'bush') {
-    const size = 0.8;
-    g.circle(0, 0, size).fill({ color: 0x3f5c30 }).stroke({ color: outlineOf(0x3f5c30), width: outlineWidth });
-  } else if (species === 'food') {
-    // Matches the renderer: a heap of berries, not a square.
-    const berries: Array<[number, number, number]> = [
-      [-0.45, 0.18, 1],
-      [0.42, -0.08, 1],
-      [0.02, 0.46, 0.92],
-      [-0.12, -0.28, 1.05],
-    ];
-    for (const [ox, oy, s2] of berries) {
-      g.circle(ox, oy, 0.4 * s2).fill({ color: 0xc8552a }).stroke({ color: outlineOf(0xc8552a), width: outlineWidth });
-      g.circle(ox - 0.12, oy - 0.12, 0.17 * s2).fill({ color: 0xe8823f });
-    }
-  } else {
-    g.circle(0, 0, 0.3).fill({ color: 0x5a7a44, alpha: 0.55 + food * 0.3 });
-  }
-  return g;
+function entity(id: number, species: number, x: number, y: number, size: number, food: number): EntityView {
+  return { id, kind: EntityKind.Plant, sex: species, x, y, size, health: food } as unknown as EntityView;
 }
 
 export function SpriteLab(): JSX.Element {
@@ -79,132 +49,140 @@ export function SpriteLab(): JSX.Element {
 
     const app = new Application();
     let disposed = false;
-    const root = new Container();
-
-    const humans: Array<{ sprite: HumanoidSprite; action: number }> = [];
-    const structures: Array<{ sprite: StructureSprite; progress: number; complete: boolean }> = [];
-    const animated: Array<(t: number) => void> = [];
+    const world = new Container();
+    const labels = new Container();
+    const creatures: Array<{ sprite: HumanoidSprite; action: number; speed: number; flags: number; pregnancy: number; size: number; hue: number }> = [];
+    const huts: StructureSprite[] = [];
 
     void app
-      .init({ background: '#0b1118', width: host.clientWidth, height: host.clientHeight, antialias: true })
+      .init({ background: '#0b2238', width: host.clientWidth, height: host.clientHeight, antialias: true })
       .then(() => {
         if (disposed) {
           app.destroy(true);
           return;
         }
         host.appendChild(app.canvas);
-        app.stage.addChild(root);
+        world.scale.set(SCALE);
+        app.stage.addChild(world, labels);
 
-        let row = 0;
-        let col = 0;
-        const place = (title: string, node: Container): void => {
-          const x = 90 + col * CELL;
-          const y = 70 + row * CELL;
-          node.position.set(x, y);
-          root.addChild(node);
-          const text = label(title, x - 54, y + 52);
-          root.addChild(text);
-          col++;
-          if (col >= COLS) {
-            col = 0;
-            row++;
-          }
+        const meadow = new Graphics();
+        meadow.rect(0, 0, 60, 40).fill(0x5d8a3c);
+        for (let i = 0; i < 400; i++) {
+          const x = (i * 7.37) % 60;
+          const y = (i * 3.91) % 40;
+          meadow.circle(x, y, 0.8 + ((i * 13) % 7) / 10).fill({ color: i % 2 ? 0x6e9a48 : 0x4e7a34, alpha: 0.35 });
+        }
+        world.addChild(meadow);
+        const tag = (text: string, x: number, y: number): void => {
+          labels.addChild(label(text, x * SCALE, y * SCALE));
         };
 
-        // --- every humanoid action, side by side -----------------------------
+        // --- row 1: every action a person can take -----------------------------
         for (let action = 0; action < MOTOR_COUNT; action++) {
           const sprite = new HumanoidSprite({ baseHeight: 1 });
-          sprite.scale.set(46);
-          sprite.setAppearance(0.08, 0.45, 0.58);
-          place(MOTOR_NAMES[action], sprite);
-          humans.push({ sprite, action });
+          const x = 2 + action * 2.3;
+          sprite.position.set(x, 3.2);
+          sprite.face(0);
+          world.addChild(sprite);
+          const walking = action <= 4;
+          creatures.push({ sprite, action, speed: walking ? 1.5 : 0, flags: 0, pregnancy: 0, size: 1, hue: (action * 0.13) % 1 });
+          tag(MOTOR_NAMES[action], x, 3.5);
         }
 
-        // --- predators --------------------------------------------------------
-        const predator = new HumanoidSprite({ baseHeight: 1, predator: true });
-        predator.scale.set(46);
-        predator.setAppearance(0.02, 0.3, 0.34);
-        place('predator', predator);
-        humans.push({ sprite: predator, action: 0 });
+        // --- row 2: life stages, states and predators -------------------------
+        const specials: Array<[string, number, number, number, number, boolean]> = [
+          // name, action, flags, pregnancy, size, predator
+          ['child', 0, 0, 0, 0.62, false],
+          ['pregnant', 0, 8, 0.8, 1, false],
+          ['sleeping', 7, 2, 0, 1, false],
+          ['injured', 0, 1, 0, 1, false],
+          ['predator: prowl', 0, 0, 0, 1.3, true],
+          ['predator: attack', 8, 32, 0, 1.3, true],
+          ['predator: rest', 7, 0, 0, 1.3, true],
+        ];
+        specials.forEach(([name, action, flags, pregnancy, size, predator], i) => {
+          const sprite = new HumanoidSprite({ baseHeight: 1, predator });
+          const x = 2.5 + i * 3.4;
+          sprite.position.set(x, 7.6);
+          sprite.face(0);
+          world.addChild(sprite);
+          creatures.push({ sprite, action, speed: action === 0 ? 1.5 : 0, flags, pregnancy, size, hue: 0.07 + i * 0.11 });
+          tag(name, x, 7.9);
+        });
 
-        // --- structures, three states ----------------------------------------
+        // --- row 3: huts, and vegetation --------------------------------------
         const states: Array<[string, number, boolean]> = [
-          ['hut: staked', 0.05, false],
-          ['hut: framed', 0.5, false],
+          ['hut: staked', 0.06, false],
+          ['hut: rising', 0.55, false],
           ['hut: finished', 1, true],
         ];
-        for (const [name, progress, complete] of states) {
-          const hut = new StructureSprite(0);
+        states.forEach(([name, progress, complete], i) => {
+          const hut = new StructureSprite(i * 0.3);
+          const x = 3 + i * 5;
+          hut.position.set(x, 13);
           hut.update(progress, complete, 0);
-          // Wrapped in a container because StructureSprite.update() sets its own
-          // scale — a finished hut is drawn a touch larger — so an outer scale
-          // applied directly to the sprite is overwritten on the next update.
-          const wrapper = new Container();
-          wrapper.addChild(hut);
-          wrapper.scale.set(17);
-          place(name, wrapper);
-          structures.push({ sprite: hut, progress, complete });
-        }
-
-        // --- plants -----------------------------------------------------------
-        const plants: Array<[string, ReturnType<typeof plantSprite>]> = [
-          ['grass', plantSprite('grass')],
-          ['bush', plantSprite('bush')],
-          ['tree: full', plantSprite('tree', 0.8, 1)],
-          ['tree: half', plantSprite('tree', 0.8, 0.5)],
-          ['stump', plantSprite('stump', 0, 0)],
-          ['food pile', plantSprite('food')],
-        ];
-        for (const [name, graphic] of plants) {
-          graphic.scale.set(46);
-          place(name, graphic);
-        }
-
-        // --- cultivation ------------------------------------------------------
-        const cult: Array<[string, number, boolean, number]> = [
-          ['field: fallow', CULTIVATION_COLORS.fallow, false, 0.6],
-          ['field: growing', CULTIVATION_COLORS.growing, false, 0.6],
-          ['field: ripe', CULTIVATION_COLORS.ripe, false, 0.6],
-          ['canal: dry', CULTIVATION_COLORS.canalDry, false, 0],
-          ['canal: dug', CULTIVATION_COLORS.canalDug, false, 0],
-          ['canal: flowing', CULTIVATION_COLORS.canalFlowing, false, 0],
-        ];
-        for (const [name, color, , ] of cult) {
-          const size = name.startsWith('canal') ? 1.6 : 2.8;
-          const g = new Graphics();
-          g.roundRect(-size / 2, -size / 2, size, size, 0.3)
-            .fill({ color })
-            .stroke({ color: outlineOf(color, 0.45), width: 0.05 });
-          g.scale.set(22);
-          place(name, g);
-        }
-
-        // --- shared shadow reference -----------------------------------------
-        const shadow = new Graphics();
-        shadow.ellipse(0, 0, 1, 0.5).fill({ color: 0x0a0f14, alpha: 0.3 });
-        shadow.scale.set(30);
-        place('shadow', shadow);
-
-        // Animate the humanoids so a still frame cannot hide a broken pose.
-        animated.push(() => {
-          for (const { sprite, action } of humans) {
-            // Locomotion actions get a real speed so the stride is visible, and
-            // each action gets its own time step so the seventeen poses do not
-            // all freeze at the same point in the cycle.
-            const walking = action === 0 || action === 1 || action === 2 || action === 3 || action === 4;
-            sprite.update(0.016 * (1 + action * 0.23), action, walking ? 1.5 : 0, 0, 0, 0, 1, 0.08, 0.45, 0.58);
-          }
-          // Each hut keeps its own state; the first version fed a private field
-          // back in as the progress and every hut rendered as "framed".
-          for (const hut of structures) hut.sprite.update(hut.progress, hut.complete, 0);
+          world.addChild(hut);
+          huts.push(hut);
+          tag(name, x, 15.2);
         });
+
+        const vegetation = new VegetationLayer();
+        const plants: Array<[string, number, number, number]> = [
+          ['grass', PlantSpecies.Grass, 1, 0.9],
+          ['bush', PlantSpecies.Bush, 1, 0.3],
+          ['berry bush', PlantSpecies.Bush, 1, 0.9],
+          ['tree', PlantSpecies.Tree, 1, 0.8],
+          ['young tree', PlantSpecies.Tree, 0.35, 0.8],
+          ['stump', PlantSpecies.Tree, 0.1, 0],
+          ['food pile', PlantSpecies.FoodPile, 0, 1],
+        ];
+        vegetation.sync(
+          plants.map(([name, species, size, food], i) => {
+            tag(name, 18.5 + i * 3, 14.6);
+            return entity(i + 1, species, 18.5 + i * 3, 13.2, size, food);
+          }),
+        );
+        world.addChild(vegetation.shadows, vegetation.ground, vegetation.canopy);
+
+        // --- row 4: fields and canals -----------------------------------------
+        const cultivation = new CultivationLayer();
+        const fieldStates: Array<[string, number, number, number]> = [
+          ['fallow, wet', 0, 0, 0.9],
+          ['fallow, dry', 0, 0, 0.15],
+          ['sown', 1, 0.15, 0.7],
+          ['growing', 1, 0.6, 0.7],
+          ['nearly ripe', 1, 0.9, 0.5],
+          ['ripe', 2, 1, 0.6],
+          ['growing, dry', 1, 0.5, 0.12],
+        ];
+        const fields: FieldView[] = fieldStates.map(([name, stage, growth, moisture], i) => {
+          tag(name, 2.5 + i * 3.8, 21.2);
+          return { id: 100 + i, x: 2.5 + i * 3.8, y: 19.4, stage, growth, moisture } as unknown as FieldView;
+        });
+        const canal = (id: number, x: number, y: number, progress: number, flowing: boolean): CanalView =>
+          ({ id, x, y, progress, complete: progress >= 1, flowing }) as unknown as CanalView;
+        const canals: CanalView[] = [];
+        for (let i = 0; i < 5; i++) canals.push(canal(200 + i, 3 + i * 2.4, 24.5, 1, false));
+        for (let i = 0; i < 5; i++) canals.push(canal(300 + i, 17 + i * 2.4, 24.5 + (i % 2) * 0.6, 1, true));
+        for (let i = 0; i < 4; i++) canals.push(canal(400 + i, 31 + i * 2.4, 24.5, i < 2 ? 1 : 0.2 + i * 0.2, false));
+        tag('canal: dug, dry', 7.8, 25.6);
+        tag('canal: flowing', 21.8, 25.8);
+        tag('canal: being dug', 34.6, 25.6);
+        cultivation.update(fields, canals, null);
+        world.addChildAt(cultivation.container, 1);
       });
 
     let raf = 0;
+    let last = performance.now();
     const tick = (): void => {
       raf = requestAnimationFrame(tick);
-      const t = performance.now() / 1000;
-      for (const fn of animated) fn(t);
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      for (const c of creatures) {
+        c.sprite.update(dt, c.action, c.speed, c.flags, c.pregnancy, 0, c.size * SPRITE_SCALE, c.hue, 0.5, 0.55);
+      }
+      for (const hut of huts) hut.animate(dt);
     };
     raf = requestAnimationFrame(tick);
 
@@ -216,9 +194,9 @@ export function SpriteLab(): JSX.Element {
   }, []);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#0b1118' }}>
+    <div style={{ position: 'fixed', inset: 0, background: '#0b2238' }}>
       <div style={{ padding: '10px 14px', color: '#c7d6e2', font: '13px ui-monospace, monospace' }}>
-        Sprite lab — every model, at one scale. Structures x26, humans x46, plants x46.
+        Sprite lab — every model, drawn by the game&apos;s own renderers at one world scale ({SCALE}px per tile).
       </div>
       <div ref={hostRef} style={{ position: 'absolute', inset: '40px 0 0 0' }} />
     </div>

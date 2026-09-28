@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { sim, useSim } from '../ui/sim';
 import { readAutosave, unwrapSave, writeAutosave, wrapSave } from '../simulation/persistence/save';
 import { WorldScreen } from '../components/WorldScreen';
+import { IslandPreview } from '../components/IslandPreview';
 import type { WorldConfig } from '../shared/protocol';
+import { NEURON_COUNT } from '../simulation/brain/channels';
 
 /**
  * Application shell: the Genesis screen, and the world itself.
@@ -62,68 +64,79 @@ export function App(): JSX.Element {
     return (
       <div className="app">
         <div className="genesis">
-          <h1>
-            EDEN<span>//0</span>
-          </h1>
-          <p className="tagline">Create a world. Watch what survives.</p>
-
-          <div className="card">
-            <div className="field">
-              <label htmlFor="seed">World seed</label>
-              <input
-                id="seed"
-                type="text"
-                value={seed}
-                spellCheck={false}
-                onChange={(event) => setSeed(event.target.value)}
-              />
+          <IslandPreview seed={seed} />
+          <div className="genesis-shade" />
+          <div className="genesis-content">
+            <div className="genesis-intro">
+              <div className="kicker">An artificial life observatory</div>
+              <h1>
+                EDEN<span>//0</span>
+              </h1>
+              <p className="tagline">Create a world. Watch what survives.</p>
+              <p className="lede">
+                {humans} humans wake up beside fresh water with {NEURON_COUNT}-neuron brains, a genome and
+                no instructions. Nothing in this world is scripted: behaviour is whatever their neural
+                activity, their physiology and their lifetime learning produce.
+              </p>
             </div>
 
-            <div className="field">
-              <label htmlFor="humans">Initial humans — {humans}</label>
-              <input
-                id="humans"
-                type="range"
-                min={2}
-                max={40}
-                value={humans}
-                onChange={(event) => setHumans(Number(event.target.value))}
-              />
-            </div>
+            <div className="card glass">
+              <div className="field">
+                <label htmlFor="seed">World seed</label>
+                <input
+                  id="seed"
+                  type="text"
+                  value={seed}
+                  spellCheck={false}
+                  onChange={(event) => setSeed(event.target.value)}
+                />
+              </div>
 
-            <div className="field">
-              <label htmlFor="predators">Predators — {predators}</label>
-              <input
-                id="predators"
-                type="range"
-                min={0}
-                max={12}
-                value={predators}
-                onChange={(event) => setPredators(Number(event.target.value))}
-              />
-            </div>
+              <div className="field">
+                <label htmlFor="humans">
+                  Founders <b>{humans}</b>
+                </label>
+                <input
+                  id="humans"
+                  type="range"
+                  min={2}
+                  max={40}
+                  value={humans}
+                  onChange={(event) => setHumans(Number(event.target.value))}
+                />
+              </div>
 
-            <div className="actions">
-              <button className="primary" onClick={startWorld}>
-                Genesis
-              </button>
-              <button onClick={loadAutosave} disabled={!hasAutosave}>
-                Load world
-              </button>
-            </div>
+              <div className="field">
+                <label htmlFor="predators">
+                  Predators <b>{predators}</b>
+                </label>
+                <input
+                  id="predators"
+                  type="range"
+                  min={0}
+                  max={12}
+                  value={predators}
+                  onChange={(event) => setPredators(Number(event.target.value))}
+                />
+              </div>
 
-            <div className="muted">
-              {hasAutosave
-                ? 'An autosaved world is available.'
-                : 'No autosaved world yet — genesis will create one.'}
+              <div className="actions">
+                <button className="primary" onClick={startWorld}>
+                  Genesis
+                </button>
+                <button onClick={loadAutosave} disabled={!hasAutosave}>
+                  Load world
+                </button>
+              </div>
+
+              <div className="muted">
+                {hasAutosave ? 'An autosaved world is available.' : 'No autosaved world yet — genesis will create one.'}
+              </div>
+              {notice ? <div className="muted">{notice}</div> : null}
             </div>
-            {notice ? <div className="muted">{notice}</div> : null}
           </div>
-
-          <div className="muted" style={{ maxWidth: 460, textAlign: 'center' }}>
-            Eight humans wake up beside fresh water with 256-neuron brains, a genome and no
-            instructions. Nothing in this world is scripted: behaviour is whatever their neural
-            activity, their physiology and their lifetime learning produce.
+          <div className="genesis-foot">
+            Island preview · seed <b>{seed || 'eden'}</b>
           </div>
         </div>
       </div>

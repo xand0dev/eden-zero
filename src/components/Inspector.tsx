@@ -1,21 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { sim, useSim, formatAge, stageName } from '../ui/sim';
-import {
-  LOCAL_COUNT,
-  LOCAL_START,
-  MOD_COUNT,
-  MOD_START,
-  MOTOR_COUNT,
-  MOTOR_NAMES,
-  MOTOR_START,
-  NEURON_COUNT,
-  RECURRENT_COUNT,
-  RECURRENT_START,
-  REGION_NAMES,
-  SENSORY_COUNT,
-  labelNeuron,
-  regionOf,
-} from '../simulation/brain/channels';
+import { MOTOR_COUNT, MOTOR_NAMES, MOTOR_START } from '../simulation/brain/channels';
+import { BrainScope } from '../render/brainScope';
 
 /**
  * Human inspector: physiology, relationships, live brain and the
@@ -276,75 +263,42 @@ function Meter({
 }
 
 /**
- * Live brain visualisation.
+ * Live brain.
  *
- * Drawn on a 2D canvas in its own animation frame so that neither React nor the
- * simulation is involved in painting it. Neurons are laid out in five vertical
- * bands by region; brightness is the smoothed firing rate; the strongest
- * synapses are drawn as lines, coloured by sign.
+ * The drawing lives in `BrainScope` (src/render/brainScope.ts), which runs its
+ * own animation loop; this panel only feeds it the latest brain and trace and
+ * owns the expand / close controls. Expanded, it fills the window and cuts a
+ * porthole through which the world renderer shows the same person, held there
+ * by the camera, so the observer sees the brain and the behaviour at once.
  */
 function BrainPanel(): JSX.Element {
   const state = useSim();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const filterRef = useRef({ showSynapses: true, minWeight: 0.25 });
-  const [showSynapses, setShowSynapses] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  const [porthole, setPorthole] = useState<{ x: number; y: number; r: number } | null>(null);
+  const [learning, setLearning] = useState(false);
+  const [sound, setSound] = useState(false);
 
-  /**
-   * Where each neuron was drawn, and what it is called.
-   *
-   * The draw loop owns these and the pointer handler reads them, which is why
-   * they are refs: a hit test has to run against the last painted frame, not
-   * against a React render.
-   */
-  const positionsRef = useRef<Array<[number, number]>>([]);
-  const namesRef = useRef<string[]>([]);
-  const hoverRef = useRef(-1);
-  const pointerRef = useRef({ x: 0, y: 0 });
-
+  // Hold the person in the porthole while the brain is expanded.
   useEffect(() => {
-    filterRef.current.showSynapses = showSynapses;
-  }, [showSynapses]);
+    const open = expanded && porthole !== null;
+    window.dispatchEvent(
+      new CustomEvent('eden:brain-porthole', {
+        detail: { open, id: state.selectedId, x: porthole?.x ?? 0, y: porthole?.y ?? 0 },
+      }),
+    );
+  }, [expanded, porthole, state.selectedId]);
+  useEffect(
+    () => () => {
+      window.dispatchEvent(new CustomEvent('eden:brain-porthole', { detail: { open: false, id: null, x: 0, y: 0 } }));
+    },
+    [],
+  );
 
-  /**
-   * Hit testing for the hover read-out.
-   *
-   * A graph of 341 unlabelled dots is decoration. Being able to point at one and
-   * be told it is `sensory:water.front`, and how hard it is firing, is the
-   * difference between watching a pattern and reading a brain.
-   */
+  // While the brain is open, the world's own panels step aside so the porthole
+  // looks onto the world, not onto a panel that happens to be behind it.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return undefined;
-    const onMove = (event: MouseEvent): void => {
-      const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      pointerRef.current = { x, y };
-      const positions = positionsRef.current;
-      let best = -1;
-      let bestDistance = 12 * 12;
-      for (let i = 0; i < positions.length; i++) {
-        const position = positions[i];
-        if (!position) continue;
-        const distance = (position[0] - x) ** 2 + (position[1] - y) ** 2;
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          best = i;
-        }
-      }
-      hoverRef.current = best;
-      canvas.style.cursor = best >= 0 ? 'crosshair' : 'default';
-    };
-    const onLeave = (): void => {
-      hoverRef.current = -1;
-    };
-    canvas.addEventListener('mousemove', onMove);
-    canvas.addEventListener('mouseleave', onLeave);
-    return () => {
-      canvas.removeEventListener('mousemove', onMove);
-      canvas.removeEventListener('mouseleave', onLeave);
-    };
+    document.body.classList.toggle('brain-open', expanded);
+    return () => document.body.classList.remove('brain-open');
   }, [expanded]);
 
   // Escape closes the expanded view. Without it the only way out is to find the
@@ -354,230 +308,12 @@ function BrainPanel(): JSX.Element {
     if (!expanded) return undefined;
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') setExpanded(false);
+      if (event.key === 'l' || event.key === 'L') setLearning((value) => !value);
+      if (event.key === 's' || event.key === 'S') setSound((value) => !value);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [expanded]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return undefined;
-    const context = canvas.getContext('2d');
-    if (!context) return undefined;
-
-    let raf = 0;
-    const draw = (): void => {
-      raf = requestAnimationFrame(draw);
-      const snapshot = sim.getSnapshot();
-      const brain = snapshot.brain;
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
-      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-      }
-      context.setTransform(dpr, 0, 0, dpr, 0, 0);
-      context.clearRect(0, 0, width, height);
-      context.fillStyle = '#04070b';
-      context.fillRect(0, 0, width, height);
-
-      if (!brain) {
-        context.fillStyle = '#46545f';
-        context.font = '11px ui-monospace, monospace';
-        context.fillText('no brain data', 10, 20);
-        return;
-      }
-
-      const padding = 12;
-      const bands = 5;
-      const bandWidth = (width - padding * 2) / bands;
-
-      // Neuron positions, grouped by region.
-      const positions: Array<[number, number]> = new Array(NEURON_COUNT);
-      const names: string[] = new Array(NEURON_COUNT);
-      // Region sizes come from the channel table, never from a literal. The
-      // literals that used to live here were v1's [32, 64, 132, 16, 12] and
-      // silently mis-drew every neuron after the brain grew.
-      const counts = [SENSORY_COUNT, LOCAL_COUNT, RECURRENT_COUNT, MOD_COUNT, MOTOR_COUNT];
-      for (let band = 0; band < bands; band++) {
-        const count = counts[band];
-        const columns = Math.max(1, Math.ceil(Math.sqrt(count)));
-        const rows = Math.ceil(count / columns);
-        const x0 = padding + band * bandWidth;
-        for (let i = 0; i < count; i++) {
-          const col = i % columns;
-          const row = Math.floor(i / columns);
-          const x = x0 + ((col + 0.5) / columns) * bandWidth * 0.86 + bandWidth * 0.07;
-          const y = padding + 16 + ((row + 0.5) / rows) * (height - padding * 2 - 26);
-          const index = neuronIndexFor(band, i);
-          positions[index] = [x, y];
-          names[index] = labelNeuron(index);
-        }
-      }
-
-      positionsRef.current = positions;
-      namesRef.current = names;
-
-      // Region labels, tinted to match the neurons in that band so the legend
-      // and the graph cannot be read as two unrelated things.
-      const regionHue = ['#7cdba0', '#84bae8', '#b09eec', '#e8be54', '#ff8a3d'];
-      context.font = '10px ui-monospace, monospace';
-      for (let band = 0; band < bands; band++) {
-        context.fillStyle = regionHue[band];
-        context.fillText(
-          REGION_NAMES[band].toUpperCase(),
-          padding + band * bandWidth + bandWidth * 0.07,
-          11,
-        );
-      }
-
-      // Synapses.
-      const filter = filterRef.current;
-      if (filter.showSynapses) {
-        for (const [pre, post, weight] of brain.synapses) {
-          if (Math.abs(weight) < filter.minWeight) continue;
-          const from = positions[pre];
-          const to = positions[post];
-          if (!from || !to) continue;
-          const alpha = Math.min(0.5, Math.abs(weight) * 0.35);
-          context.strokeStyle = weight >= 0 ? `rgba(255,138,61,${alpha})` : `rgba(90,200,216,${alpha})`;
-          context.lineWidth = Math.min(1.4, Math.abs(weight) * 1.1);
-          context.beginPath();
-          context.moveTo(from[0], from[1]);
-          context.lineTo(to[0], to[1]);
-          context.stroke();
-        }
-      }
-
-      // Highlight everything the hovered neuron talks to. Pointing at a dot and
-      // seeing only its name still leaves "what does it do" unanswered; lighting
-      // up its synapses answers it.
-      const focus = hoverRef.current;
-      if (focus >= 0) {
-        const centre = positions[focus];
-        if (centre) {
-          for (const [pre, post, weight] of brain.synapses) {
-            if (pre !== focus && post !== focus) continue;
-            const from = positions[pre];
-            const to = positions[post];
-            if (!from || !to) continue;
-            context.strokeStyle = pre === focus ? 'rgba(255,236,200,0.85)' : 'rgba(190,230,255,0.85)';
-            context.lineWidth = 1.5;
-            context.beginPath();
-            context.moveTo(from[0], from[1]);
-            context.lineTo(to[0], to[1]);
-            context.stroke();
-          }
-        }
-      }
-
-      // Travelling impulses.
-      //
-      // A dot runs along each strong synapse, brightened by the presynaptic
-      // firing rate, so a signal can be watched leaving one neuron and arriving
-      // at another. A static graph of lines cannot show that, and it is the part
-      // that actually looks alive.
-      const now = performance.now() / 1000;
-      if (filter.showSynapses) {
-        for (const [pre, post, weight] of brain.synapses) {
-          if (Math.abs(weight) < 0.55) continue;
-          const from = positions[pre];
-          const to = positions[post];
-          if (!from || !to) continue;
-          const drive = Math.max(0, Math.min(1, brain.activity[pre] ?? 0));
-          if (drive < 0.3) continue;
-          const phase = (now * 1.5 + (pre % 19) * 0.11) % 1;
-          const alpha = drive * (1 - Math.abs(phase - 0.5) * 1.5);
-          if (alpha <= 0.02) continue;
-          context.beginPath();
-          context.fillStyle =
-            weight >= 0 ? `rgba(255,206,140,${alpha})` : `rgba(150,225,255,${alpha})`;
-          context.arc(from[0] + (to[0] - from[0]) * phase, from[1] + (to[1] - from[1]) * phase, 1.7, 0, Math.PI * 2);
-          context.fill();
-        }
-      }
-
-      // Neurons.
-      for (let i = 0; i < NEURON_COUNT; i++) {
-        const position = positions[i];
-        if (!position) continue;
-        const activity = Math.max(0, Math.min(1, brain.activity[i] ?? 0));
-        const region = regionOf(i);
-        // One hue per region. Previously three of the five shared a colour,
-        // which made the bands impossible to tell apart at a glance.
-        const base =
-          region === 0
-            ? [124, 219, 160]
-            : region === 1
-              ? [132, 186, 232]
-              : region === 2
-                ? [176, 158, 236]
-                : region === 3
-                  ? [232, 190, 84]
-                  : [255, 138, 61];
-        // Resting neurons stay visible. At 0.16 alpha and a 1.3 radius a quiet
-        // neuron was effectively invisible, so the graph read as a web of lines
-        // with a few dots on it rather than as 341 cells.
-        const radius = 1.9 + activity * 3.1;
-        context.beginPath();
-        context.fillStyle = `rgba(${base[0]},${base[1]},${base[2]},${0.34 + activity * 0.66})`;
-        context.arc(position[0], position[1], radius, 0, Math.PI * 2);
-        context.fill();
-        if (activity > 0.5) {
-          context.beginPath();
-          context.strokeStyle = `rgba(255,220,180,${(activity - 0.5) * 1.6})`;
-          context.lineWidth = 1;
-          context.arc(position[0], position[1], radius + 1.6, 0, Math.PI * 2);
-          context.stroke();
-        }
-      }
-
-      // Motor output bars.
-      let lead = 0;
-      for (let i = 1; i < MOTOR_COUNT; i++) if ((brain.motor[i] ?? 0) > (brain.motor[lead] ?? 0)) lead = i;
-      const barTop = height - 6;
-      for (let i = 0; i < MOTOR_COUNT; i++) {
-        const value = Math.max(0, Math.min(1, brain.motor[i] ?? 0));
-        const x = padding + i * (width / MOTOR_COUNT - 2) * 0.9;
-        context.fillStyle = 'rgba(60,72,84,0.5)';
-        context.fillRect(x, barTop - 12, 6, 12);
-        context.fillStyle = i === lead ? '#ff8a3d' : 'rgba(255,138,61,0.4)';
-        context.fillRect(x, barTop - 12 * value, 6, 12 * value);
-      }
-
-      // Hover read-out: which neuron is under the pointer and how hard it fires.
-      const hover = hoverRef.current;
-      const hoverPosition = hover >= 0 ? positions[hover] : undefined;
-      if (hoverPosition) {
-        const activity = Math.max(0, Math.min(1, brain.activity[hover] ?? 0));
-        const text = `${names[hover] ?? '?'}   ${(activity * 100).toFixed(0)}%`;
-        context.font = '11px ui-monospace, monospace';
-        const textWidth = context.measureText(text).width;
-        let bx = hoverPosition[0] + 12;
-        let by = hoverPosition[1] - 12;
-        if (bx + textWidth + 14 > width) bx = hoverPosition[0] - textWidth - 22;
-        if (by < 18) by = hoverPosition[1] + 24;
-        context.beginPath();
-        context.fillStyle = 'rgba(8,13,20,0.94)';
-        context.strokeStyle = 'rgba(130,165,200,0.55)';
-        context.lineWidth = 1;
-        context.roundRect(bx - 7, by - 14, textWidth + 14, 20, 5);
-        context.fill();
-        context.stroke();
-        context.fillStyle = '#dce8f2';
-        context.fillText(text, bx, by);
-        context.beginPath();
-        context.strokeStyle = '#ffffff';
-        context.lineWidth = 1.3;
-        context.arc(hoverPosition[0], hoverPosition[1], 6.5, 0, Math.PI * 2);
-        context.stroke();
-      }
-    };
-
-    raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
-  }, []);
 
   const brain = state.brain;
   const motor = brain?.motor ?? new Array(MOTOR_COUNT).fill(0);
@@ -589,13 +325,6 @@ function BrainPanel(): JSX.Element {
       <div className="panel-header">
         <h3>Live brain</h3>
         <button
-          className={showSynapses ? 'active' : ''}
-          onClick={() => setShowSynapses((value) => !value)}
-          style={{ fontSize: 9, padding: '2px 6px' }}
-        >
-          synapses
-        </button>
-        <button
           className={expanded ? 'active' : ''}
           onClick={() => setExpanded((value) => !value)}
           style={{ fontSize: 9, padding: '2px 6px' }}
@@ -604,11 +333,32 @@ function BrainPanel(): JSX.Element {
           {expanded ? 'shrink' : 'expand'}
         </button>
       </div>
-      <canvas className={`brain-canvas ${expanded ? 'expanded' : ''}`} ref={canvasRef} />
+      <BrainCanvas mode="compact" />
       <div className="brain-legend">
-        hover any dot to see what it is · <span>orange</span> excites · <span>blue</span> inhibits
+        hover a cell to see what it is · <span>warm</span> excites · <span>cold</span> inhibits · the lit route is why
       </div>
-      {expanded ? <div className="brain-hint">Esc to close · the graph is live</div> : null}
+      {/* Portalled to <body>: the glass panels use backdrop-filter, which makes
+          them the containing block for `position: fixed`, so an overlay inside
+          one would fill the panel rather than the window. */}
+      {expanded
+        ? createPortal(
+            <div className="brain-overlay">
+              <BrainCanvas mode="full" porthole={porthole} onPorthole={setPorthole} learning={learning} sound={sound} />
+              <div className="brain-controls">
+                <button className={learning ? 'active' : ''} onClick={() => setLearning((value) => !value)}>
+                  <span className="kbd">L</span> Learning
+                </button>
+                <button className={sound ? 'active' : ''} onClick={() => setSound((value) => !value)}>
+                  <span className="kbd">S</span> Sound
+                </button>
+                <button onClick={() => setExpanded(false)}>
+                  <span className="kbd">Esc</span> Close
+                </button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
       <div className="motor-bars">
         {MOTOR_NAMES.map((name, index) => (
           <div key={name} className={`motor-bar ${index === lead ? 'lead' : ''}`}>
@@ -631,12 +381,59 @@ function BrainPanel(): JSX.Element {
   );
 }
 
-function neuronIndexFor(band: number, index: number): number {
-  if (band === 0) return index;
-  if (band === 1) return LOCAL_START + index;
-  if (band === 2) return RECURRENT_START + index;
-  if (band === 3) return MOD_START + index;
-  return MOTOR_START + index;
+/** One BrainScope on one canvas, fed from the store. */
+function BrainCanvas({
+  mode,
+  porthole,
+  onPorthole,
+  learning = false,
+  sound = false,
+}: {
+  mode: 'compact' | 'full';
+  porthole?: { x: number; y: number; r: number } | null;
+  onPorthole?: (geometry: { x: number; y: number; r: number } | null) => void;
+  learning?: boolean;
+  sound?: boolean;
+}): JSX.Element {
+  const state = useSim();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scopeRef = useRef<BrainScope | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    const scope = new BrainScope(canvas);
+    scope.setMode(mode);
+    if (onPorthole) scope.enablePorthole(onPorthole);
+    scopeRef.current = scope;
+    const snapshot = sim.getSnapshot();
+    scope.setData(snapshot.brain, snapshot.explain, snapshot.detail?.name ?? '');
+    return () => {
+      scope.destroy();
+      scopeRef.current = null;
+      onPorthole?.(null);
+    };
+    // The scope is created once per canvas; mode and callback are fixed per use.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    scopeRef.current?.setData(state.brain, state.explain, state.detail?.name ?? '');
+  }, [state.brain, state.explain, state.detail?.name]);
+
+  useEffect(() => scopeRef.current?.setLearning(learning), [learning]);
+  useEffect(() => scopeRef.current?.setSound(sound), [sound]);
+
+  const mask = porthole
+    ? `radial-gradient(circle ${porthole.r}px at ${porthole.x}px ${porthole.y}px, transparent 98%, #000 100%)`
+    : undefined;
+  return (
+    <canvas
+      className={`brain-canvas ${mode === 'full' ? 'expanded' : ''}`}
+      ref={canvasRef}
+      style={mask ? { WebkitMaskImage: mask, maskImage: mask } : undefined}
+    />
+  );
 }
 
 /** "Why did it do that?" — the approximate activation/contribution trace. */

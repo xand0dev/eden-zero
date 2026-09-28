@@ -79,6 +79,29 @@ export function WorldScreen({
     return unsubscribe;
   }, []);
 
+  // The expanded brain cuts a porthole in its overlay; hold the person it shows
+  // there, a little closer, so brain and behaviour are on screen together.
+  useEffect(() => {
+    let savedZoom: number | null = null;
+    const onPorthole = (event: Event): void => {
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+      const detail = (event as CustomEvent<{ open: boolean; id: number | null; x: number; y: number }>).detail;
+      if (detail.open && detail.id !== null) {
+        if (savedZoom === null) savedZoom = renderer.camera.zoom;
+        renderer.camera.zoom = 3.4;
+        renderer.followOffset = { x: detail.x - window.innerWidth / 2, y: detail.y - window.innerHeight / 2 };
+        renderer.setFollow(detail.id);
+      } else {
+        renderer.followOffset = { x: 0, y: 0 };
+        if (savedZoom !== null) renderer.camera.zoom = savedZoom;
+        savedZoom = null;
+      }
+    };
+    window.addEventListener('eden:brain-porthole', onPorthole);
+    return () => window.removeEventListener('eden:brain-porthole', onPorthole);
+  }, []);
+
   useEffect(() => {
     rendererRef.current?.setEffects(state.effects);
   }, [state.effects]);
@@ -245,7 +268,7 @@ export function WorldScreen({
   return (
     <div className="app">
       <div className="world">
-        <div className="topbar">
+        <div className="topbar glass">
           <div className="brand">
             EDEN<span>//0</span>
           </div>
@@ -269,8 +292,11 @@ export function WorldScreen({
               plants <b>{stats?.plants ?? 0}</b>
             </span>
             <span title="Huts finished / building sites still wanting timber">
-              huts <b>{stats?.huts ?? 0}</b>
-              {(stats?.sites ?? 0) > 0 && <em> +{stats?.sites} sites</em>}
+              huts
+              <b>
+                {stats?.huts ?? 0}
+                {(stats?.sites ?? 0) > 0 && <em> +{stats?.sites}</em>}
+              </b>
             </span>
           </div>
           <div className="spacer" />
@@ -304,7 +330,7 @@ export function WorldScreen({
         </div>
         <ScoreBoard />
 
-        <div className="godtools">
+        <div className="godtools glass">
           <h3>God tools</h3>
           {TOOLS.map((entry) => (
             <button
@@ -354,11 +380,14 @@ export function WorldScreen({
 
           <hr />
           <h3>World</h3>
-          <button onClick={manualSave}>Save</button>
-          <button onClick={manualLoad}>Load</button>
-          <button onClick={exportSave}>Export file</button>
-          <button onClick={importSave}>Import file</button>
+          <div className="world-actions">
+            <button onClick={manualSave}>Save</button>
+            <button onClick={manualLoad}>Load</button>
+            <button onClick={exportSave}>Export</button>
+            <button onClick={importSave}>Import</button>
+          </div>
           <button
+            className="wide"
             onClick={() => {
               sim.requestGenealogy();
               setShowGenealogy(true);
@@ -392,11 +421,11 @@ export function WorldScreen({
           )}
         </div>
 
-        <div className="inspector">
+        <div className={`inspector glass ${state.selectedId === null ? 'is-empty' : ''}`}>
           <Inspector />
         </div>
 
-        <div className="timeline">
+        <div className="timeline glass">
           <EventFeed />
         </div>
       </div>

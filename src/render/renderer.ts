@@ -1,19 +1,20 @@
-import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { Application, ColorMatrixFilter, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { gradeMatrix, lampStrength, makeGlowTexture, makeVignetteTexture } from './lighting';
 import { TILE } from '../shared/constants';
 import { EntityKind } from '../shared/types';
 import type { EntityView } from '../worker/client';
-import { HumanoidSprite, hslToHex } from './humanoid';
+import { HumanoidSprite } from './humanoid';
+import { VegetationLayer } from './vegetation';
+import { CultivationLayer } from './cultivation';
+import { DEEP_SEA, bakeTerrain } from './terrain';
 import { StructureSprite } from './structure';
 import { interpolatePose, smoothInterval, snapshotAlpha } from './interpolate';
 import { TILE_NAMES, type TerrainData } from '../simulation/environment/terrain';
-import { PLANT_SPECIES_NAMES, PlantSpecies, SPECIES_PROFILES } from '../simulation/entities/plant';
+import { PLANT_SPECIES_NAMES } from '../simulation/entities/plant';
 import type { CanalView, FieldView, StructureView, WorldEffect } from '../shared/types';
 import {
   CULTIVATION_COLORS,
   OUTLINE_WIDTH,
-  SHADOW_ALPHA,
-  SHADOW_COLOR,
-  TERRAIN_COLORS,
   outlineOf,
 } from './style';
 
@@ -52,13 +53,15 @@ export interface RendererCallbacks {
  * doing what. This is a readability decision, not a simulation one — the
  * simulation never sees it.
  */
-const SPRITE_SCALE = 3.2;
+const SPRITE_SCALE = 1.45;
 
 export class WorldRenderer {
   readonly app = new Application();
   private readonly root = new Container();
   private readonly terrainLayer = new Container();
-  private readonly plantLayer = new Container();
+  /** Plants: shadows, ground cover and tree crowns, as three particle layers. */
+  private vegetation: VegetationLayer | null = null;
+  private vegetationDirty = false;
   /**
    * Structures sit between vegetation and the inhabitants, so a hut is drawn
    * over the grass it stands on but a human walking past it is drawn on top.
@@ -72,30 +75,46 @@ export class WorldRenderer {
    * are tens of them rather than thousands — pooling would be more code for no
    * gain.
    */
-  private readonly cultivationLayer = new Container();
+  private readonly cultivation = new CultivationLayer();
   private readonly entityLayer = new Container();
   private readonly effectLayer = new Container();
 
   private terrainSprite: Sprite | null = null;
-  private plantSprite: Sprite | null = null;
-  private plantTexture: Texture | null = null;
-  private plantCanvas: HTMLCanvasElement | null = null;
-  private plantContext: CanvasRenderingContext2D | null = null;
 
   private readonly humanSprites = new Map<number, HumanoidSprite>();
   private readonly predatorSprites = new Map<number, HumanoidSprite>();
-  private readonly spritePool: HumanoidSprite[] = [];
+  /** Recycled sprites, one pool per rig: a person and a beast are different models. */
+  private readonly humanPool: HumanoidSprite[] = [];
+  private readonly predatorPool: HumanoidSprite[] = [];
   /** Previous frame positions, used to derive locomotion speed for animation. */
 
   private readonly effects = new Map<number, { graphic: Graphics; kind: string }>();
   private readonly selectionRing = new Graphics();
   private readonly nightOverlay = new Graphics();
+  /** Colour grade for the time of day, applied to the whole world. */
+  private readonly grade = new ColorMatrixFilter();
+  private gradedLight = -1;
+  /** Lamps and hearths: drawn after the grade, additively, so they glow at night. */
+  private readonly lightsLayer = new Container();
+  private readonly hutLights = new Map<number, Sprite>();
+  private glowTexture: Texture | null = null;
+  private vignette: Sprite | null = null;
 
   private terrain: TerrainData | null = null;
   private terrainTexture: Texture | null = null;
+  /** Two glint layers over the sea, crossfaded so the water glitters. */
+  private shimmer: [Sprite, Sprite] | null = null;
+  private shimmerTextures: [Texture, Texture] | null = null;
+  private clock = 0;
 
   camera: Camera = { x: 90, y: 64, zoom: 1 };
   followId: number | null = null;
+  /**
+   * Where on screen a followed entity is held, as an offset from the centre in
+   * CSS pixels. Zero keeps it centred; the brain view's porthole moves it into
+   * the hole it cuts in the overlay.
+   */
+  followOffset = { x: 0, y: 0 };
 
   get isDestroyed(): boolean {
     return this.destroyed;
@@ -130,7 +149,8 @@ export class WorldRenderer {
 
   async init(container: HTMLElement): Promise<void> {
     await this.app.init({
-      background: 0x04060a,
+      // The open sea, so the island sits in an ocean rather than on a black page.
+      background: DEEP_SEA,
       antialias: true,
       // Deliberately NOT using Pixi's `resizeTo` option. Its ResizePlugin holds
       // an internal cancel callback that is torn down by `app.destroy()`, and
@@ -161,10 +181,16 @@ export class WorldRenderer {
     this.resizeObserver.observe(container);
 
     // Fields and canals sit on the ground, under the huts and the inhabitants.
+    // Ground up: terrain, fields and canals, cast shadows, ground cover, tree
+    // crowns, huts, and the inhabitants above everything. Huts sit over the
+    // crowns because a settlement buried under its own orchard is unreadable.
+    this.vegetation = new VegetationLayer();
     this.root.addChild(
       this.terrainLayer,
-      this.plantLayer,
-      this.cultivationLayer,
+      this.cultivation.container,
+      this.vegetation.shadows,
+      this.vegetation.ground,
+      this.vegetation.canopy,
       this.structureLayer,
       this.entityLayer,
       this.effectLayer,
@@ -172,9 +198,17 @@ export class WorldRenderer {
     // The selection ring lives in world space (inside `root`); the day/night
     // wash is a screen-space overlay and must NOT inherit the camera transform.
     this.root.addChild(this.selectionRing);
-    this.app.stage.addChild(this.root, this.nightOverlay);
+    this.glowTexture = makeGlowTexture();
+    this.vignette = new Sprite(makeVignetteTexture());
+    this.lightsLayer.blendMode = 'add';
+    this.root.filters = [this.grade];
+    // Grade only what is on screen: without this the filter would render the
+    // whole island off-screen at high zoom.
+    this.root.filterArea = this.app.screen;
+    this.app.stage.addChild(this.root, this.lightsLayer, this.nightOverlay, this.vignette);
 
-    this.selectionRing.circle(0, 0, 0.9).stroke({ color: 0xffb347, width: 0.09, alpha: 0.95 });
+    this.selectionRing.ellipse(0, 0, 0.62, 0.26).stroke({ color: 0xffb347, width: 0.07, alpha: 0.95 });
+    this.selectionRing.ellipse(0, 0, 0.78, 0.34).stroke({ color: 0xffb347, width: 0.03, alpha: 0.45 });
 
     this.installInput();
     this.lastFpsTime = performance.now();
@@ -185,7 +219,10 @@ export class WorldRenderer {
   setTerrain(terrain: TerrainData): void {
     this.terrain = terrain;
     this.terrainTexture?.destroy(true);
-    this.terrainTexture = buildTerrainTexture(terrain);
+    this.shimmerTextures?.forEach((texture) => texture.destroy(true));
+    const baked = bakeTerrain(terrain);
+    this.terrainTexture = baked.ground;
+    this.shimmerTextures = baked.shimmer;
     // ---------------------------------------------------------------------
     // Coordinate convention
     //
@@ -205,22 +242,18 @@ export class WorldRenderer {
     this.terrainSprite.width = terrain.width;
     this.terrainSprite.height = terrain.height;
 
-    // Plant layer shares the terrain's resolution.
-    this.plantCanvas = document.createElement('canvas');
-    this.plantCanvas.width = terrain.width * GROUND_SCALE;
-    this.plantCanvas.height = terrain.height * GROUND_SCALE;
-    this.plantContext = this.plantCanvas.getContext('2d');
-    this.plantTexture?.destroy(true);
-    this.plantTexture = Texture.from(this.plantCanvas);
-    this.plantTexture.source.scaleMode = 'nearest';
-    if (this.plantSprite) {
-      this.plantSprite.texture = this.plantTexture;
-    } else {
-      this.plantSprite = new Sprite(this.plantTexture);
-      this.plantLayer.addChild(this.plantSprite);
+    if (!this.shimmer) {
+      this.shimmer = [new Sprite(baked.shimmer[0]), new Sprite(baked.shimmer[1])];
+      for (const sprite of this.shimmer) {
+        sprite.blendMode = 'add';
+        this.terrainLayer.addChild(sprite);
+      }
     }
-    this.plantSprite.width = terrain.width;
-    this.plantSprite.height = terrain.height;
+    this.shimmer.forEach((sprite, i) => {
+      sprite.texture = baked.shimmer[i];
+      sprite.width = terrain.width;
+      sprite.height = terrain.height;
+    });
 
     // Only fall back to the map centre if the inhabitants have not already been
     // framed. `setTerrain` runs asynchronously after `init`, so it can land after
@@ -305,8 +338,11 @@ export class WorldRenderer {
   }
 
   screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
-    const width = this.app.renderer.width / this.app.renderer.resolution;
-    const height = this.app.renderer.height / this.app.renderer.resolution;
+    // Logical (CSS) size. `renderer.width` is already logical in Pixi v8;
+    // dividing it by the resolution again put the camera's centre at a quarter
+    // of the screen on a Retina display (and at a third at 1.5x).
+    const width = this.app.screen.width;
+    const height = this.app.screen.height;
     const scale = TILE * this.camera.zoom;
     return {
       x: (screenX - width / 2) / scale + this.camera.x,
@@ -361,13 +397,25 @@ export class WorldRenderer {
     if (!this.terrain) return;
 
     const clampedDt = Math.min(0.05, dt);
+    this.clock += clampedDt;
+    if (this.shimmer) {
+      // Slow crossfade and a gentle drift: the sea glitters instead of sitting still.
+      const wave = 0.5 + 0.5 * Math.sin(this.clock * 0.8);
+      this.shimmer[0].alpha = 0.25 + 0.75 * wave;
+      this.shimmer[1].alpha = 0.25 + 0.75 * (1 - wave);
+      this.shimmer[0].x = Math.sin(this.clock * 0.23) * 0.18;
+      this.shimmer[1].x = Math.cos(this.clock * 0.19) * 0.18;
+    }
     this.updateEntities(clampedDt);
 
-    if (now - this.lastPlantRedraw > 260) {
+    // Plants change slowly; a few syncs a second keep them current.
+    if (this.vegetationDirty && now - this.lastPlantRedraw > 250) {
       this.lastPlantRedraw = now;
-      this.redrawPlants();
+      this.vegetationDirty = false;
+      this.vegetation?.sync(this.lastEntities);
     }
 
+    for (const sprite of this.structures.values()) sprite.animate(clampedDt);
     this.updateEffects();
     this.updateOverlay();
     this.updateCamera(clampedDt);
@@ -378,18 +426,26 @@ export class WorldRenderer {
       const target = this.lastEntities.find((entity) => entity.id === this.followId);
       if (target) {
         const lerp = Math.min(1, dt * 6);
-        this.camera.x += (target.x - this.camera.x) * lerp;
-        this.camera.y += (target.y - this.camera.y) * lerp;
+        const scale = TILE * this.camera.zoom;
+        const tx = target.x - this.followOffset.x / scale;
+        const ty = target.y - this.followOffset.y / scale;
+        this.camera.x += (tx - this.camera.x) * lerp;
+        this.camera.y += (ty - this.camera.y) * lerp;
       }
     }
-    const width = this.app.renderer.width / this.app.renderer.resolution;
-    const height = this.app.renderer.height / this.app.renderer.resolution;
+    // Logical (CSS) size. `renderer.width` is already logical in Pixi v8;
+    // dividing it by the resolution again put the camera's centre at a quarter
+    // of the screen on a Retina display (and at a third at 1.5x).
+    const width = this.app.screen.width;
+    const height = this.app.screen.height;
     const scale = TILE * this.camera.zoom;
     this.root.scale.set(scale);
     this.root.position.set(
       Math.round(width / 2 - this.camera.x * scale),
       Math.round(height / 2 - this.camera.y * scale),
     );
+    this.lightsLayer.scale.set(scale);
+    this.lightsLayer.position.copyFrom(this.root.position);
   }
 
   private updateOverlay(): void {
@@ -402,15 +458,20 @@ export class WorldRenderer {
     // every check I had.
     const width = this.app.screen.width;
     const height = this.app.screen.height;
-    const darkness = 1 - this.currentLight;
-
-    this.nightOverlay.clear();
-    if (darkness > 0.02) {
-      this.nightOverlay
-        .rect(0, 0, width, height)
-        .fill({ color: 0x0a1428, alpha: Math.min(0.72, darkness * 0.78) });
+    if (Math.abs(this.currentLight - this.gradedLight) > 0.004) {
+      this.gradedLight = this.currentLight;
+      this.grade.matrix = gradeMatrix(this.currentLight) as unknown as typeof this.grade.matrix;
     }
-    this.nightOverlay.position.set(0, 0);
+    const lamps = lampStrength(this.currentLight);
+    for (const light of this.hutLights.values()) {
+      light.alpha = lamps * (0.85 + 0.15 * Math.sin(this.clock * 7 + light.x));
+    }
+    this.lightsLayer.visible = lamps > 0.01;
+    if (this.vignette) {
+      this.vignette.width = width;
+      this.vignette.height = height;
+      this.vignette.alpha = 0.55 + 0.25 * (1 - this.currentLight);
+    }
 
     if (this.selectedId !== null) {
       const entity = this.lastEntities.find((item) => item.id === this.selectedId);
@@ -449,6 +510,7 @@ export class WorldRenderer {
     for (const entity of this.lastEntities) this.previousById.set(entity.id, entity);
 
     this.lastEntities = entities;
+    this.vegetationDirty = true;
 
     // Frame the inhabitants the first time we see them.
     //
@@ -499,6 +561,20 @@ export class WorldRenderer {
       const sinceBuild = tick - data.lastBuildTick;
       const pulse = sinceBuild >= 0 && sinceBuild < 30 ? 1 - sinceBuild / 30 : 0;
       sprite.update(data.wood / data.required, data.complete, pulse);
+      if (data.complete && !this.hutLights.has(data.id) && this.glowTexture) {
+        const light = new Sprite(this.glowTexture);
+        light.anchor.set(0.5);
+        light.position.set(data.x, data.y + 0.95);
+        light.width = 5.5;
+        light.height = 3.6;
+        this.lightsLayer.addChild(light);
+        this.hutLights.set(data.id, light);
+      }
+    }
+    for (const [id, light] of this.hutLights) {
+      if (seen.has(id)) continue;
+      light.destroy();
+      this.hutLights.delete(id);
     }
     for (const [id, sprite] of this.structures) {
       if (seen.has(id)) continue;
@@ -516,50 +592,19 @@ export class WorldRenderer {
    * payoff for a line of work that takes a while.
    */
   setCultivation(fields: FieldView[], canals: CanalView[]): void {
-    for (const child of this.cultivationLayer.removeChildren()) child.destroy();
-
-    // Canals first, so a field drawn beside one sits on top of it. Both get the
-    // same outline treatment as every other object, which is what stops them
-    // reading as flat coloured squares dropped on the terrain.
-    for (const canal of canals) {
-      const graphic = new Graphics();
-      const size = canal.complete ? 1.6 : 1.1;
-      const color = canal.flowing
-        ? CULTIVATION_COLORS.canalFlowing
-        : canal.complete
-          ? CULTIVATION_COLORS.canalDug
-          : CULTIVATION_COLORS.canalDry;
-      graphic
-        .roundRect(canal.x - size / 2, canal.y - size / 2, size, size, 0.2)
-        .fill({ color })
-        .stroke({ color: outlineOf(color, 0.45), width: OUTLINE_WIDTH });
-      this.cultivationLayer.addChild(graphic);
-    }
-
-    for (const field of fields) {
-      const graphic = new Graphics();
-      const size = 2.8;
-      const color =
-        field.stage === 2
-          ? CULTIVATION_COLORS.ripe
-          : field.stage === 1
-            ? CULTIVATION_COLORS.growing
-            : CULTIVATION_COLORS.fallow;
-      graphic
-        .roundRect(field.x - size / 2, field.y - size / 2, size, size, 0.3)
-        .fill({ color, alpha: field.stage === 1 ? 0.55 + 0.45 * field.growth : 0.85 })
-        .stroke({ color: outlineOf(color, 0.45), width: OUTLINE_WIDTH });
-
-      // Dry ground gets a warm rim, so a field that needs water reads as
-      // needing water rather than as merely being a field.
-      if (field.moisture < 0.3) {
-        graphic
-          .roundRect(field.x - size / 2, field.y - size / 2, size, size, 0.3)
-          .stroke({ color: CULTIVATION_COLORS.dryRim, width: 0.16, alpha: 0.95 });
-      }
-      this.cultivationLayer.addChild(graphic);
+    this.cultivation.update(fields, canals, this.terrain);
+    if (fields.length !== this.clearingFields || this.structures.size !== this.clearingHuts) {
+      this.clearingFields = fields.length;
+      this.clearingHuts = this.structures.size;
+      const points = fields.map((f) => ({ x: f.x, y: f.y, r: 2.1 }));
+      for (const sprite of this.structures.values()) points.push({ x: sprite.x, y: sprite.y, r: 2.3 });
+      this.vegetation?.setClearings(points);
+      this.vegetationDirty = true;
     }
   }
+
+  private clearingFields = -1;
+  private clearingHuts = -1;
 
   /**
    * Interpolated sprite positions, for verification only.
@@ -638,6 +683,7 @@ export class WorldRenderer {
         // standing figure is the same drawing at every heading, so the rotation
         // is not just unnecessary, it is wrong.
         sprite.rotation = 0;
+        sprite.face(pose.heading);
         // In competitive mode house 1 gets a cool shift so the two lineages are
         // visually distinct at a glance without losing the individual variation.
         const hue = entity.house === 1 ? (entity.hue + 0.45) % 1 : entity.hue;
@@ -658,6 +704,7 @@ export class WorldRenderer {
         const sprite = this.obtainSprite(true, entity.id);
         sprite.position.set(pose.x, pose.y);
         sprite.rotation = 0;
+        sprite.face(pose.heading);
         sprite.update(
           dt,
           entity.action,
@@ -665,7 +712,7 @@ export class WorldRenderer {
           entity.flags,
           0,
           0,
-          entity.size * 0.62 * SPRITE_SCALE,
+          entity.size * 0.85 * SPRITE_SCALE,
           entity.hue,
           entity.saturation,
           entity.lightness,
@@ -681,7 +728,7 @@ export class WorldRenderer {
     const map = predator ? this.predatorSprites : this.humanSprites;
     let sprite = map.get(id);
     if (sprite) return sprite;
-    sprite = this.spritePool.pop();
+    sprite = (predator ? this.predatorPool : this.humanPool).pop();
     if (!sprite) sprite = new HumanoidSprite({ baseHeight: 1, predator });
     sprite.visible = true;
     sprite.alpha = 1;
@@ -696,120 +743,10 @@ export class WorldRenderer {
       this.entityLayer.removeChild(sprite);
       sprite.visible = false;
       map.delete(id);
-      if (this.spritePool.length < 400) this.spritePool.push(sprite);
+      const pool = map === this.predatorSprites ? this.predatorPool : this.humanPool;
+      if (pool.length < 400) pool.push(sprite);
       else sprite.destroy();
     }
-  }
-
-  // ---------------------------------------------------------------------
-  // Vegetation
-  // ---------------------------------------------------------------------
-
-  private redrawPlants(): void {
-    const context = this.plantContext;
-    if (!context || !this.plantCanvas || !this.plantTexture) return;
-    const scale = GROUND_SCALE;
-    const width = this.plantCanvas.width;
-    const height = this.plantCanvas.height;
-    context.clearRect(0, 0, width, height);
-
-    for (const entity of this.lastEntities) {
-      if (entity.kind !== EntityKind.Plant) continue;
-      const species = entity.sex; // plant species is packed into the sex byte
-      const profile = SPECIES_PROFILES[species] ?? SPECIES_PROFILES[PlantSpecies.Grass];
-      const food = entity.health;
-      const cx = entity.x * scale;
-      const cy = entity.y * scale;
-
-      if (species === PlantSpecies.Tree) {
-        // For plants `entity.size` is the fraction of standing timber, not a
-        // radius. A tree that has been felled draws small and brown and swells
-        // back into a canopy as it regrows, so logging is visible in the world.
-        const timber = entity.size;
-        const radius = TREE_FULL_RADIUS * scale * (STUMP_DRAW_FRACTION + (1 - STUMP_DRAW_FRACTION) * timber);
-        if (timber < STUMP_DRAW_THRESHOLD) {
-          context.fillStyle = `#${hslToHex(STUMP_HUE, STUMP_SATURATION, STUMP_LIGHTNESS).toString(16).padStart(6, '0')}`;
-          context.beginPath();
-          context.arc(cx, cy, radius, 0, Math.PI * 2);
-          context.fill();
-        } else {
-          // A canopy with a darker rim under a lighter crown. Drawn as one flat
-          // disc a tree had no silhouette and simply merged into the meadow.
-          //
-          // The shadow is what puts the tree *on* the ground rather than in it,
-          // and it is the same shadow every other object casts.
-          context.globalAlpha = SHADOW_ALPHA;
-          context.fillStyle = `#${SHADOW_COLOR.toString(16).padStart(6, '0')}`;
-          context.beginPath();
-          context.ellipse(cx + radius * 0.2, cy + radius * 0.34, radius * 0.95, radius * 0.5, 0, 0, Math.PI * 2);
-          context.fill();
-          context.globalAlpha = 1;
-          const rim = hslToHex(profile.hue, profile.saturation + 0.12, Math.max(0.07, profile.lightness - 0.13));
-          const crown = hslToHex(profile.hue, profile.saturation, profile.lightness + 0.06 + food * 0.1);
-          context.fillStyle = `#${rim.toString(16).padStart(6, '0')}`;
-          context.beginPath();
-          context.arc(cx, cy, radius, 0, Math.PI * 2);
-          context.fill();
-          context.fillStyle = `#${crown.toString(16).padStart(6, '0')}`;
-          context.beginPath();
-          context.arc(cx - radius * 0.14, cy - radius * 0.14, radius * 0.68, 0, Math.PI * 2);
-          context.fill();
-        }
-      } else if (species === PlantSpecies.Bush) {
-        // Scrub: a disc, darker than grass and larger, so it does not vanish
-        // into what it grows among.
-        const size = 0.8 * scale;
-        context.globalAlpha = SHADOW_ALPHA * 0.7;
-        context.fillStyle = `#${SHADOW_COLOR.toString(16).padStart(6, '0')}`;
-        context.beginPath();
-        context.ellipse(cx + size * 0.2, cy + size * 0.32, size, size * 0.5, 0, 0, Math.PI * 2);
-        context.fill();
-        context.globalAlpha = 1;
-        const color = hslToHex(profile.hue, profile.saturation + 0.08, Math.max(0.1, profile.lightness - 0.03));
-        context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-        context.beginPath();
-        context.arc(cx, cy, size, 0, Math.PI * 2);
-        context.fill();
-      } else {
-        // Grass: small, soft and translucent.
-        //
-        // Drawn opaque at tile size it became a solid green carpet that buried
-        // every other layer — six thousand plants, and the map read as one flat
-        // sheet. Half-transparent and much smaller, the ground shows through and
-        // the vegetation reads as texture rather than as fill.
-        const color = hslToHex(profile.hue, profile.saturation, profile.lightness + food * 0.16);
-        context.globalAlpha = 0.34;
-        context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-        context.beginPath();
-        context.arc(cx, cy, 0.3 * scale, 0, Math.PI * 2);
-        context.fill();
-        context.globalAlpha = 1;
-      }
-
-      if (species === PlantSpecies.FoodPile) {
-        // A heap of berries, not a square. A flat orange rectangle reads as a
-        // UI marker dropped on the ground; a cluster of discs reads as food.
-        const r = 0.4 * scale;
-        const berries: Array<[number, number, number]> = [
-          [-0.45, 0.18, 1],
-          [0.42, -0.08, 1],
-          [0.02, 0.46, 0.92],
-          [-0.12, -0.28, 1.05],
-        ];
-        for (const [ox, oy, s2] of berries) {
-          const size = r * s2;
-          context.fillStyle = `#${hslToHex(0.045, 0.72, 0.42).toString(16).padStart(6, '0')}`;
-          context.beginPath();
-          context.arc(cx + ox * scale, cy + oy * scale, size, 0, Math.PI * 2);
-          context.fill();
-          context.fillStyle = `#${hslToHex(0.05, 0.8, 0.62).toString(16).padStart(6, '0')}`;
-          context.beginPath();
-          context.arc(cx + ox * scale - size * 0.3, cy + oy * scale - size * 0.3, size * 0.42, 0, Math.PI * 2);
-          context.fill();
-        }
-      }
-    }
-    this.plantTexture.source.update();
   }
 
   // ---------------------------------------------------------------------
@@ -862,168 +799,94 @@ export class WorldRenderer {
 // ---------------------------------------------------------------------------
 
 function drawEffect(graphic: Graphics, effect: WorldEffect, progress: number): void {
-  const x = effect.x;
-  const y = effect.y;
-  const radius = effect.radius;
+  // Effects are laid on the ground, like everything else: ellipses squashed to
+  // the view angle, thin lines, and motes that rise and fade. A thick flat ring
+  // read as a UI marker stamped on the world rather than as something happening.
+  const { x, y, radius, id } = effect;
+  const fade = 1 - progress;
+  const ease = 1 - (1 - progress) * (1 - progress);
+  const ring = (r: number, color: number, width: number, alpha: number): void => {
+    graphic.ellipse(x, y, r, r * 0.45).stroke({ color, width, alpha });
+  };
+  const motes = (count: number, color: number, rise: number, spread: number, size: number): void => {
+    for (let i = 0; i < count; i++) {
+      const a = ((id * 37 + i * 97) % 360) * (Math.PI / 180);
+      const d = spread * (0.35 + 0.65 * ((id * 13 + i * 29) % 100) / 100);
+      const px = x + Math.cos(a) * d * ease;
+      const py = y + Math.sin(a) * d * 0.45 * ease - rise * ease * (0.6 + 0.4 * ((i * 7) % 5) / 5);
+      graphic.circle(px, py, size * (1 - progress * 0.5)).fill({ color, alpha: fade * 0.9 });
+    }
+  };
 
   switch (effect.kind) {
     case 'lightning': {
-      const alpha = 1 - progress;
-      graphic
-        .moveTo(x, y - 18)
-        .lineTo(x - 0.8, y - 8)
-        .lineTo(x + 0.6, y - 6)
-        .lineTo(x, y)
-        .stroke({ color: 0xdff3ff, width: 0.35, alpha });
-      graphic.circle(x, y, radius * (0.35 + progress * 0.65)).stroke({
-        color: 0x9fd8ff,
-        width: 0.28,
-        alpha: alpha * 0.8,
-      });
-      graphic.circle(x, y, radius * 0.28).fill({ color: 0xffffff, alpha: alpha * 0.55 });
+      // A jagged bolt out of the sky, a glow around it, a scorch where it lands.
+      const points: number[] = [x + 1.6, y - 22];
+      let bx = x + 1.6;
+      for (let i = 1; i < 9; i++) {
+        const t = i / 9;
+        bx += (((id * 17 + i * 53) % 100) / 100 - 0.5) * 1.6;
+        points.push(bx + (x - bx) * t * t, y - 22 + 22 * t);
+      }
+      points.push(x, y);
+      const bolt = (width: number, color: number, alpha: number): void => {
+        graphic.moveTo(points[0], points[1]);
+        for (let i = 2; i < points.length; i += 2) graphic.lineTo(points[i], points[i + 1]);
+        graphic.stroke({ color, width, alpha, join: 'round', cap: 'round' });
+      };
+      const flicker = progress < 0.35 ? 1 : fade;
+      bolt(1.1, 0x7fc4ff, 0.25 * flicker);
+      bolt(0.38, 0xcfe9ff, 0.7 * flicker);
+      bolt(0.12, 0xffffff, flicker);
+      graphic.ellipse(x, y, radius * 0.5, radius * 0.22).fill({ color: 0x1a120c, alpha: 0.45 * fade });
+      ring(radius * (0.3 + ease * 0.8), 0x9fd8ff, 0.14, fade * 0.8);
+      graphic.ellipse(x, y, radius * 0.35 * fade, radius * 0.16 * fade).fill({ color: 0xffffff, alpha: fade * 0.6 });
       break;
     }
     case 'birth': {
-      const alpha = 1 - progress;
-      graphic.circle(x, y, radius * (0.2 + progress * 1.5)).stroke({
-        color: 0xffd9a0,
-        width: 0.22,
-        alpha,
-      });
+      ring(radius * (0.15 + ease * 0.9), 0xffe1a8, 0.07, fade * 0.8);
+      graphic.ellipse(x, y, radius * 0.45 * fade, radius * 0.2 * fade).fill({ color: 0xffd98a, alpha: fade * 0.35 });
+      motes(7, 0xfff0c8, 2.2, radius * 0.7, 0.09);
       break;
     }
     case 'death': {
-      const alpha = 1 - progress;
-      graphic.circle(x, y, radius * (0.3 + progress)).stroke({ color: 0x8a2b2b, width: 0.22, alpha });
-      graphic.circle(x, y, radius * 0.2).fill({ color: 0x551818, alpha: alpha * 0.5 });
+      ring(radius * (0.2 + ease * 0.8), 0x3a1418, 0.09, fade * 0.7);
+      graphic.ellipse(x, y, radius * 0.4, radius * 0.18).fill({ color: 0x100808, alpha: fade * 0.35 });
+      motes(4, 0x9aa4ad, 1.8, radius * 0.3, 0.1);
       break;
     }
     case 'mating': {
-      const alpha = (1 - progress) * 0.9;
-      graphic.circle(x, y, radius * (0.4 + progress * 0.5)).stroke({
-        color: 0xff9fb5,
-        width: 0.16,
-        alpha,
-      });
+      graphic.ellipse(x, y, radius * 0.6, radius * 0.27).fill({ color: 0xff9fb5, alpha: fade * 0.16 });
+      motes(4, 0xffb6c8, 1.6, radius * 0.35, 0.08);
       break;
     }
     case 'attack': {
-      graphic.circle(x, y, radius * 0.5).fill({ color: 0xff5a3c, alpha: (1 - progress) * 0.5 });
+      for (let i = 0; i < 3; i++) {
+        const off = (i - 1) * 0.22;
+        graphic
+          .moveTo(x - 0.4 + off, y - 0.5)
+          .lineTo(x + 0.3 + off, y + 0.2)
+          .stroke({ color: 0xff5a3c, width: 0.07, alpha: fade });
+      }
       break;
     }
     case 'build': {
-      // A rising ring of timber-coloured dust.
-      const alpha = 1 - progress;
-      graphic.circle(x, y, radius * (0.25 + progress * 1.2)).stroke({
-        color: 0xc79a5c,
-        width: 0.22,
-        alpha,
-      });
-      graphic.circle(x, y, radius * 0.3).fill({ color: 0x8a6a3d, alpha: alpha * 0.35 });
+      // Puffs of dust kicked up around the work.
+      for (let i = 0; i < 5; i++) {
+        const a = ((id * 41 + i * 72) % 360) * (Math.PI / 180);
+        const d = radius * (0.25 + ease * 0.55);
+        graphic
+          .circle(x + Math.cos(a) * d, y + Math.sin(a) * d * 0.45 - ease * 0.4, 0.18 + ease * 0.35)
+          .fill({ color: 0xcdb48a, alpha: fade * 0.35 });
+      }
       break;
     }
     default: {
-      const alpha = (1 - progress) * 0.8;
-      graphic.circle(x, y, radius * (0.3 + progress)).stroke({ color: 0xa8e6ff, width: 0.16, alpha });
+      ring(radius * (0.2 + ease * 0.8), 0xa8e6ff, 0.07, fade * 0.8);
+      motes(5, 0xd8f4ff, 1.4, radius * 0.5, 0.08);
       break;
     }
   }
-}
-
-/**
- * Pixels per tile in the offscreen terrain and vegetation canvases.
- *
- * One pixel per tile is cheap but reads as a grid of flat coloured squares. Ten
- * is what a tree needs: at four, a tree under a tile across was a three-pixel
- * disc, which rasterised as a square and turned the forest into pixel noise.
- * The ground grain is a bonus.
- */
-const GROUND_SCALE = 10;
-
-/**
- * Drawn radius of a tree with all its timber, in tiles.
- *
- * A tree is under a tile across. The first version of this used 1.5 tiles as a
- * *radius* — a three-tile-wide disc — which at island zoom turned the forest
- * into a field of overlapping bubbles. Trees carry the felling state in their
- * size, so this is the full-timber end of that range.
- */
-const TREE_FULL_RADIUS = 1.05;
-
-/** A felled tree draws at this fraction of its full radius. Not zero — a stump
- * is still something you can see, and a logged stand should read as cut rather
- * than as bare ground. */
-const STUMP_DRAW_FRACTION = 0.4;
-
-/** Timber fraction below which a tree is drawn as a stump. Mirrors
- * `STUMP_TIMBER_FRACTION` in the simulation; the client cannot call that method,
- * so the constant is repeated here rather than sent down the wire. */
-const STUMP_DRAW_THRESHOLD = 0.2;
-
-/** A felled tree draws as bare timber rather than foliage. */
-const STUMP_HUE = 0.08;
-const STUMP_SATURATION = 0.42;
-const STUMP_LIGHTNESS = 0.3;
-
-/** Paint the terrain into an offscreen canvas and upload it as a texture. */
-function buildTerrainTexture(terrain: TerrainData): Texture {
-  const scale = GROUND_SCALE;
-  const canvas = document.createElement('canvas');
-  canvas.width = terrain.width * scale;
-  canvas.height = terrain.height * scale;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('2D canvas context unavailable');
-  const image = context.createImageData(canvas.width, canvas.height);
-
-  for (let ty = 0; ty < terrain.height; ty++) {
-    for (let tx = 0; tx < terrain.width; tx++) {
-      const index = ty * terrain.width + tx;
-      const tile = terrain.tiles[index];
-      const base = TERRAIN_COLORS[tile] ?? [40, 40, 40];
-      const shade = tile === 0 ? 1 : 1 + (terrain.elevation[index] - 0.5) * 0.28;
-      const lit = [base[0] * shade, base[1] * shade, base[2] * shade];
-
-      for (let sy = 0; sy < scale; sy++) {
-        for (let sx = 0; sx < scale; sx++) {
-          // Deterministic per-pixel grain, stable across reloads.
-          const gx = tx * scale + sx;
-          const gy = ty * scale + sy;
-          const noise = ((gx * 73856093) ^ (gy * 19349663)) % 19;
-          const jitter = (noise / 19 - 0.5) * (tile === 0 ? 6 : 16);
-          const pixel = ((gy * canvas.width) + gx) * 4;
-          image.data[pixel] = clampByte(lit[0] + jitter);
-          image.data[pixel + 1] = clampByte(lit[1] + jitter);
-          image.data[pixel + 2] = clampByte(lit[2] + jitter);
-          image.data[pixel + 3] = 255;
-        }
-      }
-    }
-  }
-  context.putImageData(image, 0, 0);
-
-  // Shelter zones read as warm clearings.
-  context.globalCompositeOperation = 'lighter';
-  for (const shelter of terrain.shelters) {
-    const cx = shelter.x * scale;
-    const cy = shelter.y * scale;
-    const radius = shelter.radius * scale;
-    const gradient = context.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    gradient.addColorStop(0, 'rgba(120, 90, 50, 0.5)');
-    gradient.addColorStop(1, 'rgba(120, 90, 50, 0)');
-    context.fillStyle = gradient;
-    context.beginPath();
-    context.arc(cx, cy, radius, 0, Math.PI * 2);
-    context.fill();
-  }
-  context.globalCompositeOperation = 'source-over';
-
-  const texture = Texture.from(canvas);
-  texture.source.scaleMode = 'nearest';
-  return texture;
-}
-
-function clampByte(value: number): number {
-  return value < 0 ? 0 : value > 255 ? 255 : value;
 }
 
 export { TILE_NAMES, PLANT_SPECIES_NAMES };
