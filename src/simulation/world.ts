@@ -58,6 +58,29 @@ import type { InheritanceReport } from './genetics/evolution';
  */
 const MATING_RADIUS = 5;
 
+/** Closest two canal lengths may be staked. */
+const CANAL_SPACING = 2.2;
+/**
+ * No new hut site or canal length is staked while an unfinished one lies within
+ * this many tiles: work already started has to be finished first.
+ *
+ * The spacing rules used to be answered by 8-tile grid cells rather than by
+ * distance, which accidentally kept sites ~8–16 tiles apart. Measured once the
+ * distances were real: 21 hut sites and no finished hut after 20 000 ticks,
+ * because timber was spread across every site anyone had started. Anyone can
+ * still start work; it just has to be where no started work is waiting.
+ */
+const UNFINISHED_WORK_RANGE = 10;
+/**
+ * Two lengths this close are one channel: water in one flows into the other.
+ *
+ * Also the distance within which a new length may be staked beside an old one,
+ * so every length the world accepts as a continuation actually is one. These
+ * used to differ (staked within 3.2, linked within 2.5), and a length staked in
+ * between was accepted, dug, and never carried water.
+ */
+const CANAL_LINK = 3.2;
+
 /**
  * Everything we keep about a birth, so the inspector can later answer
  * "which genes came from whom, and what mutated?" even after the parents die.
@@ -177,6 +200,13 @@ export class World implements SimWorld {
   deaths = 0;
   maxGeneration = 0;
   totalMatings = 0;
+  /**
+   * Food eaten over the world's life, by where it came from, in food units.
+   *
+   * Counting a harvest says a crop was brought in; this says whether anyone ate
+   * it. Pure bookkeeping — nothing reads it back into the simulation.
+   */
+  readonly foodEaten = { wild: 0, crop: 0, pile: 0 };
 
   private readonly scratchA: number[] = [];
   private readonly scratchB: number[] = [];
@@ -436,9 +466,50 @@ export class World implements SimWorld {
     if (waterDistanceAt(this.terrain, this.waterDistance, x, y) <= CANAL_SOURCE_RANGE) return true;
     const count = this.queryCanals(x, y, CANAL_REACH, this.canalScratch);
     for (let i = 0; i < count; i++) {
-      if (this.canals[this.canalScratch[i]]?.flowing) return true;
+      const canal = this.canals[this.canalScratch[i]];
+      if (canal?.flowing && Math.hypot(canal.x - x, canal.y - y) <= CANAL_REACH) return true;
     }
     return false;
+  }
+
+  /** Whether a site or length that is started but not complete lies within `UNFINISHED_WORK_RANGE`. */
+  private unfinishedWithin(
+    grid: SpatialGrid,
+    items: ReadonlyArray<{ x: number; y: number; complete: boolean }>,
+    x: number,
+    y: number,
+  ): boolean {
+    const count = this.within(grid, items, x, y, UNFINISHED_WORK_RANGE, this.scratchA);
+    for (let i = 0; i < count; i++) if (!items[this.scratchA[i]].complete) return true;
+    return false;
+  }
+
+  /**
+   * Indices of the entities in `grid` within `radius` of a point, into `out`.
+   *
+   * The spatial grid answers with every entity in the cells a circle overlaps —
+   * up to sixteen tiles away for a small radius — and leaves the distance test
+   * to the caller. Every spacing and reach rule in this file used the raw count,
+   * so a canal could not be dug beside the last length (the chain the flow model
+   * relies on was impossible) while one ten tiles away still counted as
+   * "touching" it. This is the one place that turns a cell query into a radius.
+   */
+  private within(
+    grid: SpatialGrid,
+    items: ReadonlyArray<{ x: number; y: number }>,
+    x: number,
+    y: number,
+    radius: number,
+    out: number[],
+  ): number {
+    const count = grid.queryCircle(x, y, radius, out);
+    let kept = 0;
+    for (let i = 0; i < count; i++) {
+      const item = items[out[i]];
+      if (item && Math.hypot(item.x - x, item.y - y) <= radius) out[kept++] = out[i];
+    }
+    out.length = kept;
+    return kept;
   }
 
   /**
@@ -460,7 +531,7 @@ export class World implements SimWorld {
           canal.flowing = true;
           continue;
         }
-        const count = this.queryCanals(canal.x, canal.y, 2.5, this.canalScratch);
+        const count = this.within(this.canalGrid, this.canals, canal.x, canal.y, CANAL_LINK, this.canalScratch);
         for (let i = 0; i < count; i++) {
           const other = this.canals[this.canalScratch[i]];
           if (other && other !== canal && other.flowing) {
@@ -515,7 +586,7 @@ export class World implements SimWorld {
   foundField(x: number, y: number, worker: Human): Field | null {
     if (this.fields.length >= MAX_FIELDS) return null;
     if (tileAt(this.terrain, x, y) !== Tile.Grass) return null;
-    if (this.queryFields(x, y, 4.5, this.fieldScratch) > 0) return null;
+    if (this.within(this.fieldGrid, this.fields, x, y, 4.5, this.fieldScratch) > 0) return null;
     const field = new Field(this.nextEntityId++, x, y);
     this.fields.push(field);
     this.fieldGrid.insert(this.fields.length - 1, x, y);
@@ -545,19 +616,22 @@ export class World implements SimWorld {
     if (!field) return false;
     if (!field.harvest(this.tick, worker.name)) return false;
 
-    if (this.plants.length < MAX_PLANTS) {
-      const pile = new Plant(
-        this.nextEntityId++,
-        PlantSpecies.FoodPile,
-        field.x + this.rng.range(-1.2, 1.2),
-        field.y + this.rng.range(-1.2, 1.2),
-        this.rng,
-        1,
-      );
-      pile.food = FIELD_YIELD;
-      this.plants.push(pile);
-      this.plantGrid.insert(this.plants.length - 1, pile.x, pile.y);
-    }
+    // Always, even at the plant cap. The cap exists to stop wild growth filling
+    // the map; with it applied here, a long-running world — which sits at the
+    // cap permanently — turned every harvest into nothing but an event. Carcasses
+    // were already exempt for the same reason.
+    const pile = new Plant(
+      this.nextEntityId++,
+      PlantSpecies.FoodPile,
+      field.x + this.rng.range(-1.2, 1.2),
+      field.y + this.rng.range(-1.2, 1.2),
+      this.rng,
+      1,
+    );
+    pile.food = FIELD_YIELD;
+    pile.crop = true;
+    this.plants.push(pile);
+    this.plantGrid.insert(this.plants.length - 1, pile.x, pile.y);
 
     this.emitEvent('build', `${worker.name} brought in a crop.`, [worker.id]);
     this.addEffect('build', field.x, field.y, 3.2, 2.2);
@@ -576,13 +650,16 @@ export class World implements SimWorld {
     if (this.canals.length >= MAX_CANALS) return null;
     const tile = tileAt(this.terrain, x, y);
     if (tile === Tile.Water || tile === Tile.Rock) return null;
-    if (this.queryCanals(x, y, 2.2, this.canalScratch) > 0) return null;
+    if (this.within(this.canalGrid, this.canals, x, y, CANAL_SPACING, this.canalScratch) > 0) return null;
 
     // A length may only be started next to water or next to an existing canal,
     // so the line has to be dug outward from the source rather than appearing
     // wherever someone happens to stand.
-    const nearWater = waterDistanceAt(this.terrain, this.waterDistance, x, y) <= CANAL_SOURCE_RANGE + 2;
-    const nearCanal = this.queryCanals(x, y, 3.2, this.canalScratch) > 0;
+    // Both rules match the flow model exactly, so a length that is accepted is a
+    // length that can carry water once dug.
+    if (this.unfinishedWithin(this.canalGrid, this.canals, x, y)) return null;
+    const nearWater = waterDistanceAt(this.terrain, this.waterDistance, x, y) <= CANAL_SOURCE_RANGE;
+    const nearCanal = this.within(this.canalGrid, this.canals, x, y, CANAL_LINK, this.canalScratch) > 0;
     if (!nearWater && !nearCanal) return null;
 
     const canal = new Canal(this.nextEntityId++, x, y);
@@ -632,8 +709,9 @@ export class World implements SimWorld {
     if (this.structures.length >= MAX_STRUCTURES) return null;
     // Keep sites a sensible distance apart so the village reads as a village and
     // not as one pile of huts.
-    const nearby = this.structureGrid.queryCircle(x, y, 5.5, this.structureScratch);
+    const nearby = this.within(this.structureGrid, this.structures, x, y, 5.5, this.structureScratch);
     if (nearby > 0) return null;
+    if (this.unfinishedWithin(this.structureGrid, this.structures, x, y)) return null;
 
     const [sx, sy] = nearestWalkable(this.terrain, x, y);
     const site = new Structure(this.nextEntityId++, sx, sy);
@@ -649,6 +727,9 @@ export class World implements SimWorld {
     if (!plant || !plant.alive) return 0;
     const taken = Math.min(plant.food, amount);
     plant.food -= taken;
+    if (plant.species !== PlantSpecies.FoodPile) this.foodEaten.wild += taken;
+    else if (plant.crop) this.foodEaten.crop += taken;
+    else this.foodEaten.pile += taken;
     if (plant.food <= 0.0001 && plant.species === PlantSpecies.FoodPile) {
       plant.food = 0;
       plant.alive = false;
@@ -1517,16 +1598,45 @@ export class World implements SimWorld {
     }
     meanActivity /= brain.n;
 
-    // Strongest synapses only — rendering every connection is unreadable.
-    const order: number[] = [];
-    for (let s = 0; s < brain.synCount; s++) order.push(s);
-    order.sort((a, b) => Math.abs(brain.w[b]) - Math.abs(brain.w[a]));
-    const limit = Math.min(280, order.length);
-    const synapses: Array<[number, number, number]> = [];
-    for (let i = 0; i < limit; i++) {
-      const s = order[i];
-      synapses.push([brain.pre[s], brain.post[s], brain.w[s]]);
+    // The strongest synapses *between each pair of regions*, not overall.
+    //
+    // Rendering every connection is unreadable, but the plain top-N by weight
+    // was almost entirely the innate sensory -> motor reflexes — the largest
+    // weights in the brain by design — so the recurrent core, where learning
+    // happens, looked disconnected. A per-pathway quota shows every stage of the
+    // flow: senses to local circuits, into the core, around it, and out to the
+    // motors. Read-only: nothing here touches the simulation.
+    const buckets = new Map<number, number[]>();
+    for (let s = 0; s < brain.synCount; s++) {
+      const key = regionOf(brain.pre[s]) * 8 + regionOf(brain.post[s]);
+      let bucket = buckets.get(key);
+      if (!bucket) buckets.set(key, (bucket = []));
+      bucket.push(s);
     }
+    const synapses: Array<[number, number, number, number]> = [];
+    const shown = new Set<number>();
+    for (const bucket of buckets.values()) {
+      bucket.sort((a, b) => Math.abs(brain.w[b]) - Math.abs(brain.w[a]));
+      for (let i = 0; i < Math.min(26, bucket.length); i++) {
+        const s = bucket[i];
+        shown.add(s);
+        synapses.push([brain.pre[s], brain.post[s], brain.w[s], brain.w[s] - brain.initialWeights[s]]);
+      }
+    }
+    // What a lifetime has rewritten: the synapses that moved furthest from the
+    // weight this individual was born with, whether or not they are strong.
+    const byDrift: number[] = [];
+    for (let s = 0; s < brain.synCount; s++) if (!shown.has(s)) byDrift.push(s);
+    byDrift.sort(
+      (a, b) => Math.abs(brain.w[b] - brain.initialWeights[b]) - Math.abs(brain.w[a] - brain.initialWeights[a]),
+    );
+    const learned: Array<[number, number, number, number]> = byDrift
+      .slice(0, 40)
+      .map((s) => [brain.pre[s], brain.post[s], brain.w[s], brain.w[s] - brain.initialWeights[s]]);
+
+    // Spikes since the last read. Draining here is safe: nothing else reads it.
+    const spikes = Array.from(brain.spikeCount);
+    brain.spikeCount.fill(0);
 
     const stats = brain.stats();
     return {
@@ -1536,6 +1646,12 @@ export class World implements SimWorld {
       potential,
       motor: Array.from(human.motor),
       synapses,
+      learned,
+      spikes,
+      valence: human.lastValence,
+      sensors: Array.from(human.sensors),
+      heading: human.heading,
+      weightDrift: brain.weightDrift(),
       stats: {
         meanActivity,
         activeNeurons,
@@ -1821,6 +1937,7 @@ export class World implements SimWorld {
       deaths: this.deaths,
       maxGeneration: this.maxGeneration,
       totalMatings: this.totalMatings,
+      foodEaten: { ...this.foodEaten },
       reachedMilestones: [...this.reachedMilestones],
       matingPairs: this.matingPairs,
       inheritanceReports: [...this.inheritanceReports.entries()].map(([id, report]) => [id, report]),
@@ -1852,6 +1969,7 @@ export class World implements SimWorld {
     world.deaths = (data.deaths as number) ?? 0;
     world.maxGeneration = (data.maxGeneration as number) ?? 0;
     world.totalMatings = (data.totalMatings as number) ?? 0;
+    Object.assign(world.foodEaten, (data.foodEaten as World['foodEaten'] | undefined) ?? {});
     for (const m of (data.reachedMilestones as number[]) ?? []) world.reachedMilestones.add(m);
 
     for (const raw of (data.humans as Record<string, unknown>[]) ?? []) {

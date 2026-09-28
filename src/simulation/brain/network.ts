@@ -355,6 +355,15 @@ export class Brain {
   /** Smoothed firing rate — this is what the brain viewer displays. */
   readonly rate = new Float32Array(NEURON_COUNT);
   /**
+   * Spikes fired since the observer last read them, per neuron.
+   *
+   * Pure observability: nothing in the simulation reads it and it is not saved,
+   * so it cannot affect behaviour or determinism. `World.brainView` drains it,
+   * which is what lets the brain viewer draw the impulses that actually fired
+   * rather than impulses implied by a rate.
+   */
+  readonly spikeCount = new Uint32Array(NEURON_COUNT);
+  /**
    * Integrated synaptic drive of each motor neuron (last sub-step).
    *
    * This, not the spike rate, is what drives behaviour. A LIF neuron with a
@@ -738,6 +747,7 @@ export class Brain {
             v[i] = V_RESET;
             refrac[i] = REFRACTORY_SUBSTEPS;
             spike[i] = 1;
+            this.spikeCount[i]++;
           } else {
             spike[i] = 0;
           }

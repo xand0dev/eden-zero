@@ -152,6 +152,8 @@ export class Plant {
   alive = true;
   /** Cached so rendering does not have to re-read the profile table. */
   radius: number;
+  /** A food pile left by a harvest rather than by a death or the observer. */
+  crop = false;
 
   constructor(id: number, species: number, x: number, y: number, rng: Rng, initialGrowth = 0) {
     this.id = id;
@@ -269,6 +271,7 @@ export class Plant {
       timber: this.timber,
       radius: this.radius,
       alive: this.alive,
+      ...(this.crop ? { crop: true } : {}),
     };
   }
 
@@ -287,6 +290,7 @@ export class Plant {
     plant.timber = (data.timber as number) ?? plant.profile.maxTimber * plant.growth;
     plant.radius = data.radius as number;
     plant.alive = data.alive as boolean;
+    plant.crop = (data.crop as boolean | undefined) ?? false;
     return plant;
   }
 }

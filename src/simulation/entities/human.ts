@@ -115,6 +115,10 @@ const MAX_VILLAGE_GROWTH = 24;
  */
 const ABSOLUTE_VILLAGE_LIMIT = 46;
 
+/** Cost of one tick of digging, matched to felling's cost per tick (a ~2.2 / ~3 swing every 24 ticks). */
+const DIG_ENERGY_PER_TICK = 2.2 / HARVEST_INTERVAL_TICKS;
+const DIG_FATIGUE_PER_TICK = 3 / HARVEST_INTERVAL_TICKS;
+
 /** Duration of a mating event, in simulated seconds. */
 export const MATING_DURATION = 7;
 /**
@@ -1098,13 +1102,13 @@ export class Human {
 
     const count = world.queryPlants(this.x, this.y, REACH + 0.6, this.scratch);
     let bestIndex = -1;
-    let bestDistance = Infinity;
+    let bestDistance = REACH + 0.6;
     for (let i = 0; i < count; i++) {
       const index = this.scratch[i];
       const plant = world.plants[index];
       if (!plant || plant.timber <= 0.05) continue;
       const distance = Math.hypot(plant.x - this.x, plant.y - this.y);
-      if (distance < bestDistance) {
+      if (distance <= bestDistance) {
         bestDistance = distance;
         bestIndex = index;
       }
@@ -1141,7 +1145,18 @@ export class Human {
     const count = world.queryPlants(this.x, this.y, FRONTIER_BUILD_RANGE, this.scratch);
     for (let i = 0; i < count; i++) {
       const plant = world.plants[this.scratch[i]];
-      if (plant && plant.timber > 0.5) return true;
+      if (!plant || plant.timber <= 0.5) continue;
+      if (Math.hypot(plant.x - this.x, plant.y - this.y) <= FRONTIER_BUILD_RANGE) return true;
+    }
+    return false;
+  }
+
+  /** Whether any structure, finished or not, stands within `range` tiles. */
+  private structureWithin(world: SimWorld, range: number): boolean {
+    const count = world.queryStructures(this.x, this.y, range, this.scratch);
+    for (let i = 0; i < count; i++) {
+      const site = world.structures[this.scratch[i]];
+      if (site && Math.hypot(site.x - this.x, site.y - this.y) <= range) return true;
     }
     return false;
   }
@@ -1152,13 +1167,13 @@ export class Human {
 
     const count = world.queryStructures(this.x, this.y, REACH + 1.2, this.scratch);
     let bestIndex = -1;
-    let bestDistance = Infinity;
+    let bestDistance = REACH + 1.2;
     for (let i = 0; i < count; i++) {
       const index = this.scratch[i];
       const site = world.structures[index];
       if (!site || site.complete) continue;
       const distance = Math.hypot(site.x - this.x, site.y - this.y);
-      if (distance < bestDistance) {
+      if (distance <= bestDistance) {
         bestDistance = distance;
         bestIndex = index;
       }
@@ -1183,7 +1198,7 @@ export class Human {
       const extension =
         !withinReach &&
         distanceHome <= ABSOLUTE_VILLAGE_LIMIT &&
-        world.queryStructures(this.x, this.y, VILLAGE_EXTENSION_RANGE, this.scratch) > 0 &&
+        this.structureWithin(world, VILLAGE_EXTENSION_RANGE) &&
         this.standingInTimber(world);
 
       if (!withinReach && !extension) return;
@@ -1217,6 +1232,7 @@ export class Human {
       const index = this.scratch[i];
       const field = world.fields[index];
       if (!field || !field.needsSowing) continue;
+      if (Math.hypot(field.x - this.x, field.y - this.y) > REACH + 1.2) continue;
       if (world.sowField(index, this)) {
         this.farming = true;
         this.energy = clamp(this.energy - 1.4, 0, 100);
@@ -1244,6 +1260,7 @@ export class Human {
       const index = this.scratch[i];
       const field = world.fields[index];
       if (!field || !field.ripe) continue;
+      if (Math.hypot(field.x - this.x, field.y - this.y) > REACH + 1.2) continue;
       if (world.harvestField(index, this)) {
         this.farming = true;
         this.energy = clamp(this.energy - 1.8, 0, 100);
@@ -1269,10 +1286,18 @@ export class Human {
       const index = this.scratch[i];
       const canal = world.canals[index];
       if (!canal || canal.complete) continue;
+      if (Math.hypot(canal.x - this.x, canal.y - this.y) > REACH + 1.2) continue;
       if (world.digCanal(index, this)) {
         this.farming = true;
-        this.energy = clamp(this.energy - 2.2, 0, 100);
-        this.fatigue = clamp(this.fatigue + 3, 0, 100);
+        // Digging advances every tick the dig motor is held, unlike felling or
+        // building, which work in swings every ~20 ticks. It used to charge a
+        // whole swing's cost *per tick*: one 50-tick length cost ~110 energy and
+        // ~150 fatigue, the valence crash that followed depressed every active
+        // synapse — the innate libido -> mate reflex included — and farming
+        // villages stopped mating (see docs/IMPLEMENTATION_LOG.md, E4). Charged
+        // at felling's per-tick rate, a length costs about 5 energy and 6 fatigue.
+        this.energy = clamp(this.energy - DIG_ENERGY_PER_TICK, 0, 100);
+        this.fatigue = clamp(this.fatigue + DIG_FATIGUE_PER_TICK, 0, 100);
         return;
       }
     }
@@ -1302,15 +1327,19 @@ export class Human {
     if (world.tick - this.lastBiteTick < BITE_INTERVAL_TICKS) return;
     if (!forced && this.hunger < 8 && this.energy > 92) return;
 
+    // The grid returns everything in the cells the circle overlaps — up to two
+    // cells, sixteen tiles — so the reach is enforced here. Before it was, a
+    // human "within reach" of food could eat from a bush eight tiles away, and a
+    // predator could strike from as far.
     const count = world.queryPlants(this.x, this.y, REACH, this.scratch);
     let bestIndex = -1;
-    let bestDistance = Infinity;
+    let bestDistance = REACH;
     for (let i = 0; i < count; i++) {
       const index = this.scratch[i];
       const plant = world.plants[index];
       if (!plant || plant.food < 0.1) continue;
       const distance = Math.hypot(plant.x - this.x, plant.y - this.y);
-      if (distance < bestDistance) {
+      if (distance <= bestDistance) {
         bestDistance = distance;
         bestIndex = index;
       }
@@ -1364,12 +1393,12 @@ export class Human {
     if (world.tick - this.lastAttackTick < ATTACK_INTERVAL_TICKS) return;
     const count = world.queryHumans(this.x, this.y, ATTACK_REACH, this.scratch);
     let target: Human | null = null;
-    let bestDistance = Infinity;
+    let bestDistance = ATTACK_REACH;
     for (let i = 0; i < count; i++) {
       const other = world.humans[this.scratch[i]];
       if (!other || other === this || !other.alive) continue;
       const distance = Math.hypot(other.x - this.x, other.y - this.y);
-      if (distance < bestDistance) {
+      if (distance <= bestDistance) {
         bestDistance = distance;
         target = other;
       }

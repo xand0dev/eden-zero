@@ -316,8 +316,20 @@ export interface BrainView {
   potential: number[];
   /** Motor read-out, 0..1, ordered by MOTOR_NAMES. */
   motor: number[];
-  /** Strongest synapses for the visualiser: [pre, post, weight]. */
-  synapses: Array<[number, number, number]>;
+  /** Strongest synapses per region pair: [pre, post, weight, change since birth]. */
+  synapses: Array<[number, number, number, number]>;
+  /** The synapses lifetime learning has changed most, same shape. */
+  learned: Array<[number, number, number, number]>;
+  /** Spikes per neuron since the previous brain view (sensory neurons do not spike). */
+  spikes: number[];
+  /** The plasticity valence driving learning right now, -1..1 (reward positive). */
+  valence: number;
+  /** Raw sensory input, one value per sensory channel. */
+  sensors: number[];
+  /** Body heading in radians, to turn egocentric senses into directions. */
+  heading: number;
+  /** Mean |weight change| since birth across all synapses. */
+  weightDrift: number;
   stats: {
     meanActivity: number;
     activeNeurons: number;

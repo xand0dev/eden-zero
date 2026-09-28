@@ -403,12 +403,12 @@ export class Predator {
     if (world.tick - this.lastAttackTick < ATTACK_INTERVAL_TICKS) return;
     const count = world.queryHumans(this.x, this.y, ATTACK_REACH, this.scratch);
     let target = null;
-    let bestDistance = Infinity;
+    let bestDistance = ATTACK_REACH;
     for (let i = 0; i < count; i++) {
       const human = world.humans[this.scratch[i]];
       if (!human || !human.alive) continue;
       const distance = Math.hypot(human.x - this.x, human.y - this.y);
-      if (distance < bestDistance) {
+      if (distance <= bestDistance) {
         bestDistance = distance;
         target = human;
       }
@@ -425,13 +425,13 @@ export class Predator {
     if (this.hunger < 8 && this.energy > 90) return;
     const count = world.queryPlants(this.x, this.y, REACH, this.scratch);
     let bestIndex = -1;
-    let bestDistance = Infinity;
+    let bestDistance = REACH;
     for (let i = 0; i < count; i++) {
       const index = this.scratch[i];
       const plant = world.plants[index];
       if (!plant || plant.food < 0.1) continue;
       const distance = Math.hypot(plant.x - this.x, plant.y - this.y);
-      if (distance < bestDistance) {
+      if (distance <= bestDistance) {
         bestDistance = distance;
         bestIndex = index;
       }
