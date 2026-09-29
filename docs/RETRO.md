@@ -45,20 +45,24 @@ baseline the outcome is bimodal: some worlds die out, some grow without bound.
 Part of the old viability turned out to rest on a bug: action gates ignored their
 own reach, so a human could eat from a bush sixteen tiles away and a predator could
 strike from as far. Fixing that was correct and made small villages die faster.
-The remaining cause I have measured is dispersal — adults drifting out of sight of
-each other — and the fix for it is designed but not yet measured on a full batch.
-Acceptance check #29 therefore still fails, and CI is red on it.
+The biggest cause turned out to be in the brain: homeostatic synaptic scaling was
+erasing the innate drink and eat reflexes (1.80 → 0.05 in ten simulated minutes),
+so thirsty people stood at the shore and did not drink. Fixed; acceptance #29 now
+passes. The dispersal fix (E5) was measured and did not help, so it is off. Two of
+eight worlds still die out in 200 000 ticks, and thirst is still the leading cause
+of death — senses and turning motors saturate under high need.
 
 **Performance at scale.** A world that thrives becomes slow: 689 people cost
 ~16 ms per tick. There is no carrying capacity below the hard cap, because food is
 effectively unlimited. That is both a balance problem and a performance problem.
 
-**Save size.** Every person carries a full brain; a 58-person save is 10 MB and no
-longer fits in `localStorage`, so autosave quietly stops working in grown worlds.
+**Save size** (since fixed). A 58-person save was 10 MB and outgrew
+`localStorage`; brains are now packed as exact float32 and worlds live gzip'd in
+IndexedDB (54 people: 4.8 MB before compression).
 
-**Scope.** The roadmap's settlement stages and crises (camp → village → town,
-drought, cold, crop disease) are not built. I chose to fix the foundations and the
-observatory first.
+**Scope** (since built). Settlement eras, crises, favour, the atlas, laws, biomes
+and the rest of the game layer came after the foundations — see
+[GAMEPLAY_PLAN.md](GAMEPLAY_PLAN.md).
 
 ## What I'd do differently
 

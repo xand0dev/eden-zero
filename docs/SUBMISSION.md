@@ -44,7 +44,7 @@ synapse has moved since birth.
 | Item | Status | Where |
 |---|---|---|
 | `MANIFESTO.md` with *The Question* … *The Answer: 42* | **Done** | [MANIFESTO.md](../MANIFESTO.md) |
-| Product shipped: public URL, release or binary | **Not yet.** Builds are ready (static web build, Docker image, Tauri app); the repository is private and nothing is deployed. Needs the author's decision on where to publish. | [DEPLOY.md](DEPLOY.md) |
+| Product shipped: public URL, release or binary | **Yes.** The public repository deploys a static build to GitHub Pages: the game at <https://xand0dev.github.io/eden-zero/play/>, a landing page with videos at <https://xand0dev.github.io/eden-zero/>. | [DEPLOY.md](DEPLOY.md) |
 | Demo video 60–120 s in the README | **Done** — 69 s, recorded from the real build | [docs/media/demo.mp4](media/demo.mp4) |
 | README: hero, quickstart, architecture, *Don't Panic* | **Done** | [README.md](../README.md) |
 | `docs/RETRO.md`, specific and honest | **Done** | [RETRO.md](RETRO.md) |
@@ -69,8 +69,8 @@ Checking the project against each week:
 | 4 | Node streams and WebSockets | **Covered** — `server/ws.ts` implements RFC 6455 by hand: upgrade handshake, masking, fragmentation, control frames, close semantics. No `ws` dependency. |
 | 5 | Prediction, reconciliation, binary protocol | **Mostly covered.** The binary protocol is real — a JSON header plus concatenated `Int32Array`/`Float32Array`/`Uint8Array` payloads, big-endian, sent as `ArrayBuffer`. Client-side *prediction* is not implemented and I am not going to claim it is: an observer controls nothing that needs predicting. What the client does instead is interpolate between the last two snapshots, and that is verified rather than asserted — see the measurement below. God commands get optimistic local feedback reconciled against the next authoritative snapshot. |
 | 6 | TypeScript | **Covered.** ~17 000 lines of strict TypeScript, `strict: true`, no `any` in the simulation core. |
-| 7 | V8 internals, profiling, tests | **Covered.** 168 tests, a dev panel reporting ticks/s, frame time, tick cost and snapshot bytes, and a real V8 CPU profile: `npm run bench` for wall-clock cost, `--cpu-prof` plus `scripts/profile-report.mjs` for self time. Written up in **[docs/PROFILING.md](PROFILING.md)**, including the assumption the profile disproved. |
-| 8 | Docker, CI/CD, public URL | **Mostly covered.** Multi-stage `Dockerfile`, GitHub Actions running typecheck → tests → build → server smoke test → acceptance → container build and boot. The public URL is the one item still outstanding. |
+| 7 | V8 internals, profiling, tests | **Covered.** 202 tests, a dev panel reporting ticks/s, frame time, tick cost and snapshot bytes, and a real V8 CPU profile: `npm run bench` for wall-clock cost, `--cpu-prof` plus `scripts/profile-report.mjs` for self time. Written up in **[docs/PROFILING.md](PROFILING.md)**, including the assumption the profile disproved. |
+| 8 | Docker, CI/CD, public URL | **Covered.** Multi-stage `Dockerfile`, GitHub Actions running typecheck → tests → build → server smoke test → acceptance → container build and boot, and a Pages workflow that publishes the static build on every push to `main`. |
 
 **Proving the interpolation claim.** Snapshots arrive at 20 Hz; the renderer draws
 at 60 fps. Without interpolation a sprite can only change position when a snapshot
@@ -90,9 +90,9 @@ Fifty-three distinct positions from thirty snapshots is not a claim, it is a
 measurement — and it is the kind of claim that is very easy to make in a README
 without anyone checking.
 
-One item is honestly incomplete: the public URL. Everything else is done. The
-deployment is prepared but not performed — see
-**[docs/DEPLOY.md](DEPLOY.md)** — and the repository is still private.
+The public URL is live: **<https://xand0dev.github.io/eden-zero/>** (the game is at
+`/play/`), deployed by `.github/workflows/pages.yml` — see
+**[docs/DEPLOY.md](DEPLOY.md)**.
 
 
 ---
@@ -222,22 +222,18 @@ next, and it is a more honest portfolio piece.
 
 ## 6. What is honest to say is weak
 
-- **Population viability is bimodal, not solved.** On an 8-seed, 200 000-tick
-  baseline (2 predators) four worlds went extinct and one fell to a single survivor,
-  while three grew without bound. The measurements, and the causes found so far — a
-  canal-digging cost charged 24× too often that made brains unlearn mating, and
-  villagers dispersing beyond sight of each other — are in
-  [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md). Acceptance check #29 ("multiple
-  generations within 200 000 ticks") still fails on its seed, so **the CI job that
-  runs `npm run accept` is red** until that is fixed.
+- **Population viability is better, not solved.** On 8 seeds × 200 000 ticks with
+  the shipped defaults: 4 thriving (three reach the village era), 1 runaway, 1
+  declining, 2 extinct. The largest cause found was a brain bug — homeostatic
+  scaling erased the drink and eat reflexes — now fixed; thirst is still the leading
+  cause of death because senses and turning motors saturate under high need.
+  Everything is measured in [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).
+  Acceptance passes 44/44 automated checks.
 - **Thriving worlds get slow.** Tick cost is linear in population; a 689-person
   world costs ~16 ms per tick, which is not watchable at high speed.
-- **Autosave fails silently for large worlds.** A 58-person save is 10 MB, over
-  the browser's `localStorage` quota. Export to a file works.
-- **Shipping is incomplete:** no public URL yet, and no outside user yet.
+- **No outside user yet.** The game is public; nobody but the author has reported
+  playing it.
 - **Predator reproduction is asexual.** A shortcut, labelled as one.
-- **The settlement has no stages or crises yet** (camp → village → town, drought,
-  cold): planned as roadmap stage S5, not built.
 - **The brain view thins impulses** to at most one per synapse per update so it
   stays readable; brightness, the "why" route, feeling and learning colours are the
   real data. The legend says so.
@@ -254,7 +250,7 @@ npm run build            # production bundle into dist/
 npm run server           # authoritative world + WebSocket on :8080
 # then open http://127.0.0.1:8080/?server=auto
 
-npm test                 # 168 tests
+npm test                 # 202 tests
 npm run typecheck
 npm run accept           # the 50-point acceptance scenario
 npm run smoke:server     # boots the server and drives it over a real socket
