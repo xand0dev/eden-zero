@@ -6,3 +6,6 @@ docs/screenshots
 .git
 .workbuddy-ai
 *.log
+scripts/.scratch
+docs/media
+_site

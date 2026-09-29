@@ -15,6 +15,8 @@ COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
 COPY server ./server
 COPY tests ./tests
+# The type-check covers the tests, and the balance tests import the harness.
+COPY scripts ./scripts
 RUN npm run build
 
 # ---------------------------------------------------------------------------
