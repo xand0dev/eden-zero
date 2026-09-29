@@ -4,7 +4,23 @@
 
 **You don't control life. You define its laws.**
 
-[![EDEN//0 — a farming village that nobody scripted](docs/screenshots/02-world.jpg)](docs/media/demo.mp4)
+**[▶ Play in the browser](https://xand0dev.github.io/eden-zero/play/)** ·
+[Website](https://xand0dev.github.io/eden-zero/) ·
+[Demo video (EN, 1:09)](docs/media/demo.mp4) ·
+[Game-layer video (UK, 1:36)](docs/media/game-report-uk.mp4)
+
+[![CI](https://github.com/xand0dev/eden-zero/actions/workflows/ci.yml/badge.svg)](https://github.com/xand0dev/eden-zero/actions/workflows/ci.yml)
+[![Pages](https://github.com/xand0dev/eden-zero/actions/workflows/pages.yml/badge.svg)](https://github.com/xand0dev/eden-zero/actions/workflows/pages.yml)
+
+<p align="center">
+  <a href="https://xand0dev.github.io/eden-zero/"><img src="docs/media/gif/village.gif" width="760" alt="A village of roundhouses, granaries, fields and canals that nobody scripted"></a>
+</p>
+
+| Open any brain | Seasons and eras |
+|---|---|
+| <img src="docs/media/gif/brain.gif" alt="The live brain: real spikes, reward, learning"> | <img src="docs/media/gif/winter.gif" alt="Winter snow over the settlement"> |
+| **Fate, with a day's warning** | **The neuro-lab** |
+| <img src="docs/media/gif/rain.gif" alt="Calling rain before a harsh winter"> | <img src="docs/media/gif/lab.gif" alt="Sending a reward pulse into one brain"> |
 
 > **The Question** — *If you write down every rule a creature follows, and none of
 > the rules say "be alive" — is what comes out alive, or only a machine that looks
@@ -26,8 +42,10 @@ synapse has moved since birth.
 
 ### Quickstart
 
+Nothing to install: **[play it in the browser](https://xand0dev.github.io/eden-zero/play/)**. To run it locally:
+
 ```bash
-git clone <this repository> && cd eden-zero
+git clone https://github.com/xand0dev/eden-zero.git && cd eden-zero
 npm ci
 npm run dev          # open http://localhost:1420 → press GENESIS
 ```
@@ -42,6 +60,36 @@ It is not alive, and it does not claim to be. It is a world where the question c
 be asked without cheating: no behaviour tree, no scripted villager, no LLM, no
 score. What is still broken is written down in [docs/RETRO.md](docs/RETRO.md) —
 including the parts that fail their own acceptance test.
+
+---
+
+## The game
+
+The observatory became a game without scripting anyone. You change physics,
+bodies, genomes and the learning signal; nothing you do writes a decision. The
+full design — loops, numbers, the hundred-hour breakdown — is
+[docs/GAMEPLAY_PLAN.md](docs/GAMEPLAY_PLAN.md).
+
+- **Campaign, challenges, daily world, sandbox.** Pick an island (6 biomes) and
+  write a **charter** of up to 3–5 laws out of 42 — *Dry world*, *Short lives*,
+  *Tabula rasa* (born without reflexes), *Lamarck*, *Only an observer*… Harder
+  charters multiply the legacy a campaign leaves.
+- **Seasons and eras.** An eight-day year; winter snow, dwellings that hold warmth.
+  Hearth → camp → village → town → city, read from the world's state and sensed by
+  the brains on their own input channel. A site staked beside a field in a camp
+  becomes a **granary**; far from water in a village, a **well**; at a town's edge,
+  a **palisade** — the kind is decided by the place, never by a new motor.
+- **Fate.** Drought, harsh winter, predator migration, blight, flood, fever,
+  wildfire, eclipse — each with a day's warning, harder as the settlement grows.
+- **Favour.** Interventions cost it; it grows when the world thrives. New tools:
+  rain, bless, and reward/pain **pulses** into one brain's learning signal.
+- **The atlas** of 45 behaviours nobody wrote — Provider, Night Watch, Irrigator,
+  Mourner, Learned to reap… — detected by an observational classifier with a
+  stated criterion. Epithets follow people into the **chronicle**, whose
+  obituaries are built from recorded facts only.
+- **Metaprogress** that unlocks questions, not power: a 152-entry codex, 30
+  challenges with medals, a genome vault (share genomes as strings), replays that
+  are just the seed plus the command log.
 
 ---
 
@@ -378,15 +426,28 @@ simulated hours each, eight founders, two predators:
   6/6 survived · 3/6 with births ≥ deaths · mean final population 11.0
 ```
 
-**Current measurement (brain v2, agriculture, 200 000 ticks ≈ 2.8 simulated
-hours).** The picture got worse and more interesting. On eight seeds with two
-predators the outcome is bimodal: four worlds went extinct and one fell to a single
-survivor, while three grew without bound (eden reached 689 people and generation 5).
-The causes found so far, with their numbers, are in
-[docs/IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md): action gates that ignored
-their own reach (fixed), a canal-digging cost charged 24× too often that made
-brains unlearn mating (fixed), and villagers dispersing out of sight of each other
-(designed, not yet measured). Reproduce with:
+**Current measurement (game layer, shipped defaults, 200 000 ticks ≈ 2.8
+simulated hours, two predators, no interventions):**
+
+```
+  seed       final pop   generation   era            outcome
+  eden           152          5       III village    thriving
+  lumen          117          5       III village    thriving  (drought, flood)
+  tessera         33          5       III village    thriving  (two droughts)
+  vela            23          4       II  camp       thriving
+  auriga         251          5       III village    runaway   (stopped at 250)
+  solace           3          3       II  camp       declining
+  orion            0          2       II  camp       extinct   (harsh winter)
+  kepler           0          2       I   hearth     extinct
+```
+
+The biggest single fix on the way was in the brain, not the balance: homeostatic
+synaptic scaling was erasing the innate `thirst → drink` and `hunger → eat`
+reflexes (1.80 → 0.05 within ten simulated minutes), so thirsty people stood at the
+shore and did not drink. Earlier causes — action gates that ignored their own reach,
+a canal-digging cost charged 24× too often — are fixed too. Every step, with its
+numbers, is in [docs/IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md). Reproduce
+with:
 
 ```bash
 npm run balance
@@ -394,16 +455,14 @@ npm run balance
 
 ## Current limitations
 
-- **Population viability is bimodal.** Some seeds die out, some grow without bound;
-  acceptance check #29 (multiple generations within 200 000 ticks) fails on its
-  seed, so the CI job that runs `npm run accept` is red.
-- **No carrying capacity below the hard cap.** Food is effectively unlimited, so a
-  thriving world keeps growing, and tick cost grows with it (~16 ms/tick at 689
-  people).
-- **Autosave fails silently in large worlds**: every person carries a brain, and a
-  58-person save (10 MB) exceeds `localStorage`. Export to a file works.
-- **No settlement stages or crises yet** (camp → village → town, drought, cold,
-  crop disease) — the next roadmap stage.
+- **Two of eight worlds still die out** in 200 000 ticks, and **thirst is the
+  leading cause of death**: when need is high the direction senses and the turning
+  motors both saturate, and people circle a few tiles from water. Two fixes were
+  measured and did not help (see the log); it is the next brain problem.
+- **Soil fertility does not yet cap a thriving world** below the hard limit
+  (auriga reached 250).
+- Acceptance now passes 44/44 automated checks, including #29 (several
+  generations).
 - Predator reproduction is asexual (see above).
 - Human language, culture, crafting and tools are out of scope by design.
 - Social memory accumulates but does not decay during a lifetime.
@@ -453,7 +512,7 @@ npm run desktop        # Tauri desktop app in development
 ### Test
 
 ```bash
-npm test            # 138 unit + integration tests
+npm test            # 202 unit + integration tests
 npm run accept      # the 50-point acceptance scenario from the design brief
 npm run smoke:server # boots the server and drives it over a real socket
 npm run balance     # ecology across a batch of seeds
@@ -508,6 +567,14 @@ npm run brain          # neural dynamics diagnostic
 | **Learning view** — gold: strengthened since birth; violet: weakened. | **Night** — a moonlit grade and a hearth in every finished hut. |
 | ![Family tree](docs/screenshots/07-family-tree.jpg) | ![Sprite lab](docs/screenshots/08-sprite-lab.jpg) |
 | **Family tree** — founders and their descendants. | **Sprite lab** (`?lab=1`) — every model at one scale. |
+| ![Charter](docs/screenshots/15-genesis-charter.jpg) | ![Challenges](docs/screenshots/16-challenges.jpg) |
+| **Genesis** — island and charter of laws. | **Challenges** — one seed, one goal, medals. |
+| ![Village era](docs/screenshots/09-village-era.jpg) | ![Winter](docs/screenshots/10-winter.jpg) |
+| **A camp becoming a village** — granaries, canals, trails. | **Winter** — snow, and the huts that keep people warm. |
+| ![Omen and rain](docs/screenshots/11-omen-rain.jpg) | ![Chronicle](docs/screenshots/12-chronicle.jpg) |
+| **An omen** — a harsh winter a day away; rain on the fields. | **Chronicle** — turning points and obituaries. |
+| ![Atlas](docs/screenshots/13-atlas.jpg) | ![Summary](docs/screenshots/14-summary.jpg) |
+| **Atlas** — behaviours discovered, with their criteria. | **End of a campaign** — legacy and what to keep. |
 
 Captured from the running build by a headless browser
 (`scripts/verify-ui.mjs` and friends).
@@ -551,12 +618,11 @@ See `docs/ARCHITECTURE.md` and `docs/SIMULATION.md` for the full picture.
 
 ## Roadmap
 
-- **Population viability**: measure the dispersal fix on the same seeds, get
-  acceptance #29 green, add a real carrying capacity.
-- **Settlement stages and crises**: camp → village → town → city from measured
-  state; drought, cold, predators, crop disease, and visible feedback for the
-  observer's interventions.
-- **Smaller saves** so autosave survives a grown world.
+- **Steering under high need**: keep the bearing when senses and turn motors
+  saturate — the main cause of thirst deaths.
+- **Carrying capacity** that bites before the hard cap.
+- **Content depth** from the gameplay plan: a second species with the same brain
+  and a different body, the atlas toward 120 entries.
 - **Broad-phase sensing** so tick cost stays flat into the thousands.
 - **Sexual reproduction for predators**, reusing the human mating machinery.
 - **Rust migration** of the neural update behind Tauri commands; the `SimWorld`
