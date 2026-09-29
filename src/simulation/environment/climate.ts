@@ -21,8 +21,14 @@ export function createClimate(): Climate {
   return { dayPhase: 0.2, light: 0.5, globalOffset: 0 };
 }
 
+/**
+ * Where in the day the world begins: early morning. A world used to open at
+ * midnight, so the first thing a new observer saw was a dark island.
+ */
+export const DAY_PHASE_AT_GENESIS = 0.3;
+
 export function updateClimate(climate: Climate, simTime: number): void {
-  climate.dayPhase = ((simTime / DAY_SECONDS) % 1 + 1) % 1;
+  climate.dayPhase = ((simTime / DAY_SECONDS + DAY_PHASE_AT_GENESIS) % 1 + 1) % 1;
   // Smooth solar elevation: -1 at midnight, +1 at noon.
   const sun = Math.sin((climate.dayPhase - 0.25) * Math.PI * 2);
   climate.light = clamp01((sun + 0.35) / 1.35);

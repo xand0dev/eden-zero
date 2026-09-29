@@ -2,7 +2,7 @@ import { Rng } from './rng';
 import { DAY_SECONDS, DT, MAX_CANALS, MAX_EVENTS, MAX_FIELDS, MAX_PLANTS, MAX_POPULATION, MAX_PREDATORS, MAX_STRUCTURES, SIM_HZ, SPATIAL_CELL, WORLD_H, WORLD_W, AGE_ADULT_END, AGE_CHILD_END } from '../shared/constants';
 import { SpatialGrid } from './spatial/grid';
 import { generateTerrain, nearestWalkable, computeWaterDistance, tileAt, waterDistanceAt, Tile, isFreshAt, type TerrainData } from './environment/terrain';
-import { ambientTemperature, createClimate, updateClimate, type Climate } from './environment/climate';
+import { ambientTemperature, createClimate, DAY_PHASE_AT_GENESIS, updateClimate, type Climate } from './environment/climate';
 import { Human, MATING_DURATION, MATING_REFRACTORY } from './entities/human';
 import { Predator } from './entities/predator';
 import { FoodOrigin, Plant, PlantSpecies, SPECIES_PROFILES, type GrowthConditions } from './entities/plant';
@@ -2688,9 +2688,11 @@ export class World implements SimWorld {
   setTimeOfDay(phase: number): void {
     const wrapped = ((phase % 1) + 1) % 1;
     // Move the simulation clock so that the climate's day phase equals `phase`.
-    const daySeconds = 240;
-    const cycles = Math.floor(this.simTime / daySeconds);
-    this.simTime = cycles * daySeconds + wrapped * daySeconds;
+    // Move the clock forward to the next time the day reaches `phase`, so the
+    // calendar never runs backwards.
+    const current = (((this.simTime / DAY_SECONDS + DAY_PHASE_AT_GENESIS) % 1) + 1) % 1;
+    const ahead = (((wrapped - current) % 1) + 1) % 1;
+    this.simTime += ahead * DAY_SECONDS;
     updateClimate(this.climate, this.simTime);
     this.emitEvent('god', `Time of day set to ${(wrapped * 24).toFixed(1)}h.`, []);
   }

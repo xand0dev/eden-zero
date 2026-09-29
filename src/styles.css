@@ -2491,3 +2491,10 @@ button.link {
   margin: 2px 0 8px;
   padding: 5px 8px;
 }
+
+/* The strip is widest part of the bar: drop births and deaths before it clips. */
+@media (max-width: 1520px) {
+  .topbar .stat-strip > span:nth-child(n + 6) {
+    display: none;
+  }
+}
