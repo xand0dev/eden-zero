@@ -14,6 +14,43 @@
  */
 
 export const WOOD_PER_HUT = 42;
+
+/**
+ * What a structure is.
+ *
+ * Every kind is raised the same way — timber laid on a site by the `build` motor
+ * — and the kind is decided by where the site was staked and what the settlement
+ * already has (see `game/buildings.ts`). The brain has no "build a granary"
+ * output; a granary is what a hut site beside a field becomes in a camp.
+ */
+export const StructureKind = {
+  Hut: 0,
+  Granary: 1,
+  Well: 2,
+  Workshop: 3,
+  StoneHouse: 4,
+  Palisade: 5,
+  Shrine: 6,
+} as const;
+export type StructureKind = (typeof StructureKind)[keyof typeof StructureKind];
+
+export const STRUCTURE_NAMES = ['hut', 'granary', 'well', 'workshop', 'stone house', 'palisade', 'shrine'] as const;
+
+/** Timber each kind needs. */
+export const WOOD_BY_KIND: Record<number, number> = {
+  [StructureKind.Hut]: WOOD_PER_HUT,
+  [StructureKind.Granary]: 60,
+  [StructureKind.Well]: 30,
+  [StructureKind.Workshop]: 70,
+  [StructureKind.StoneHouse]: 54,
+  [StructureKind.Palisade]: 18,
+  [StructureKind.Shrine]: 48,
+};
+
+/** Kinds people can sleep in, for warmth and the shelter sense. */
+export function isDwelling(kind: number): boolean {
+  return kind === StructureKind.Hut || kind === StructureKind.StoneHouse;
+}
 /** Timber a human can carry at once. */
 export const CARRY_CAPACITY = 12;
 /** Ticks of work to fell one unit of timber from a tree. */
@@ -33,6 +70,10 @@ export interface StructureData {
   lastBuildTick: number;
   builderId: number;
   builderName: string;
+  /** Absent in saves written before structure kinds existed: those are all huts. */
+  kind?: number;
+  /** Food held, for a granary. */
+  store?: number;
 }
 
 export class Structure {
@@ -45,11 +86,16 @@ export class Structure {
   lastBuildTick = -1000;
   builderId = 0;
   builderName = '';
+  kind: number = StructureKind.Hut;
+  /** Food held in a granary. Zero for everything else. */
+  store = 0;
 
-  constructor(id: number, x: number, y: number) {
+  constructor(id: number, x: number, y: number, kind: number = StructureKind.Hut) {
     this.id = id;
     this.x = x;
     this.y = y;
+    this.kind = kind;
+    this.required = WOOD_BY_KIND[kind] ?? WOOD_PER_HUT;
   }
 
   get progress(): number {
@@ -92,11 +138,14 @@ export class Structure {
       lastBuildTick: this.lastBuildTick,
       builderId: this.builderId,
       builderName: this.builderName,
+      ...(this.kind !== StructureKind.Hut ? { kind: this.kind } : {}),
+      ...(this.store > 0 ? { store: this.store } : {}),
     };
   }
 
   static fromData(data: StructureData): Structure {
-    const structure = new Structure(data.id, data.x, data.y);
+    const structure = new Structure(data.id, data.x, data.y, data.kind ?? StructureKind.Hut);
+    structure.store = data.store ?? 0;
     structure.wood = data.wood;
     structure.required = data.required;
     structure.complete = data.complete;

@@ -1,10 +1,11 @@
 import { Rng } from '../rng';
-import { Brain, clamp } from '../brain/network';
+import { Brain, clamp, type BrainOptions } from '../brain/network';
 import { M, MOTOR_COUNT, MOTOR_NAMES, MOTOR_START, S, SENSORY_COUNT, SENSORY_NAMES, regionOf } from '../brain/channels';
 import { SocialMemory } from '../memory/social';
 import { cloneGenome, type Genome } from '../genetics/genome';
 import type { InheritanceReport } from '../genetics/evolution';
 import type { SimWorld } from './context';
+import { TUNING } from '../game/tuning';
 import {
   BUILD_CHUNK,
   BUILD_INTERVAL_TICKS,
@@ -20,7 +21,7 @@ import {
   BIO_YEAR_SECONDS,
   GESTATION_YEARS,
 } from '../../shared/constants';
-import { Tile, isWater, tileAt } from '../environment/terrain';
+import { Tile, isFreshAt, tileAt } from '../environment/terrain';
 
 // --- physiology tuning (all rates are per simulated second) -----------------
 
@@ -223,6 +224,22 @@ export class Human {
 
   pregnancy: Pregnancy | null = null;
   mating: MatingState | null = null;
+  /** Tick of this person's last birth given, for the one-child-a-year law. */
+  lastBirthTick = -1e9;
+  /**
+   * Valence the observer has injected with a reward or pain pulse, applied at the
+   * next valence read-out. This is the neuro-lab's only lever: it does not choose
+   * what is learned, only when the learning signal says "good" or "bad".
+   */
+  pendingPulse = 0;
+  /** Ticks of fever left; 0 when well. */
+  fever = 0;
+  /** Recovered from fever: cannot catch it again. */
+  immune = false;
+  /** Distance to the nearest person in sight, Infinity if nobody. Observability only. */
+  nearestHumanDistance = Infinity;
+  /** Plants with food in sight at the last sense, for the atlas. */
+  wildInSight = 0;
   matingCooldown = 0;
   /** Ticks remaining of post-birth recovery. */
   recovery = 0;
@@ -299,13 +316,13 @@ export class Human {
   /** Deterministic per-entity stream; used only for sensory noise. */
   private readonly rng: Rng;
 
-  constructor(id: number, name: string, sex: number, genome: Genome, rng: Rng) {
+  constructor(id: number, name: string, sex: number, genome: Genome, rng: Rng, brainOptions?: BrainOptions) {
     this.id = id;
     this.name = name;
     this.sex = sex;
     this.genome = genome;
     this.rng = rng;
-    this.brain = new Brain(genome);
+    this.brain = new Brain(genome, brainOptions);
     this.stage = LifeStage.Baby;
   }
 
@@ -479,7 +496,7 @@ export class Human {
      * once they were almost standing in it, wandered away, and died of thirst in
      * the middle of a fertile valley.
      */
-    const waterRange = vision * 3.2;
+    const waterRange = vision * 3.2 * world.rules.waterSense;
 
     this.visibleIds.length = 0;
     let familiarity = 0;
@@ -506,6 +523,7 @@ export class Human {
     // in the simulation — every human scanning every nearby plant, twice, every
     // tick. Merging them costs one extra branch per plant and saves half the work.
     const plantCount = world.queryPlants(this.x, this.y, foodRange, this.scratch);
+    let wildInSight = 0;
     for (let i = 0; i < plantCount; i++) {
       const plant = world.plants[this.scratch[i]];
       if (!plant) continue;
@@ -514,6 +532,7 @@ export class Human {
       const dist = Math.hypot(dx, dy);
       if (dist > foodRange) continue;
       if (dist < TOUCH_RANGE) touch = 1;
+      if (plant.food >= 0.14 && plant.species !== 3) wildInSight++;
 
       if (plant.food >= 0.14 && dist < bestFoodDist) {
         bestFoodDist = dist;
@@ -538,6 +557,7 @@ export class Human {
         }
       }
     }
+    this.wildInSight = wildInSight;
     if (bestFoodDist < Infinity) {
       // A resource already within reach stops pulling the animal forward. The
       // directional channel still reports "food is here", but its contribution
@@ -563,7 +583,13 @@ export class Human {
     // social signal pulls animals away from food and water, and the seed that had
     // been thriving collapsed to three survivors inside twenty-five simulated
     // minutes. Mate search is a salience effect, not a range effect.
-    const humanCount = world.queryHumans(this.x, this.y, vision, this.scratch);
+    //
+    // The *direction* to others, though, may reach further than sight (see
+    // TUNING.socialRange): the work senses carry adults out to forty tiles, and
+    // an approach reflex with nobody in sight has nothing to act on. Social
+    // memory still forms only within vision.
+    const contactRange = vision * Math.max(1, TUNING.socialRange);
+    const humanCount = world.queryHumans(this.x, this.y, contactRange, this.scratch);
     let nearestHumanDx = 0;
     let nearestHumanDy = 0;
     let nearestHumanDist = Infinity;
@@ -573,13 +599,15 @@ export class Human {
       const dx = other.x - this.x;
       const dy = other.y - this.y;
       const dist = Math.hypot(dx, dy);
-      if (dist > vision) continue;
-      if (dist < TOUCH_RANGE) touch = 1;
-      this.visibleIds.push(other.id);
-      const record = this.memory.get(other.id);
-      if (record) {
-        if (record.familiarity > familiarity) familiarity = record.familiarity;
-        if (record.attachment > attachment) attachment = record.attachment;
+      if (dist > contactRange) continue;
+      if (dist <= vision) {
+        if (dist < TOUCH_RANGE) touch = 1;
+        this.visibleIds.push(other.id);
+        const record = this.memory.get(other.id);
+        if (record) {
+          if (record.familiarity > familiarity) familiarity = record.familiarity;
+          if (record.attachment > attachment) attachment = record.attachment;
+        }
       }
       if (dist < nearestHumanDist) {
         nearestHumanDist = dist;
@@ -587,13 +615,14 @@ export class Human {
         nearestHumanDy = dy;
       }
     }
+    this.nearestHumanDistance = nearestHumanDist <= vision ? nearestHumanDist : Infinity;
     if (nearestHumanDist < Infinity) {
       // Mate search: a reproductively ready animal pays more attention to other
       // animals. Without this the inhabitants foraged past each other forever —
       // the mating diagnostics showed two willing adults coming within range
       // only once per ten thousand ticks.
       const mateSearch = 0.6 + this.libido;
-      const weight = (1 - nearestHumanDist / vision) * this.genome.socialGain * mateSearch;
+      const weight = (1 - nearestHumanDist / contactRange) * this.genome.socialGain * mateSearch;
       encodeDirection(nearestHumanDx, nearestHumanDy, this.heading, weight, conspecific);
     }
 
@@ -756,8 +785,11 @@ export class Human {
     // has seed. Kept as its own channel so the brain can gate sowing on it.
     s[S.seeds] = clamp01(0.7);
     s[S.cropReady] = clamp01(fieldGrowth >= 1 ? 1 : 0);
-    s[S.storedFood] = 0;
-    s[S.settlementStage] = 0;
+    // The two channels reserved since the brain grew to 64 inputs. The era is a
+    // fact about the settlement, and a full granary is a fact about the winter
+    // ahead; the brain gets to feel both, and learning decides whether they matter.
+    s[S.storedFood] = clamp01(world.storedFoodSensor);
+    s[S.settlementStage] = clamp01(world.eraSensor);
 
     s[S.woodCarried] = clamp01(this.wood / CARRY_CAPACITY);
     s[S.buildNeed] = clamp01(siteNeed);
@@ -821,6 +853,17 @@ export class Human {
     s[S.attachment] = attachment;
     s[S.noise] = hash01(this.id * 2654435761 + world.tick * 40503);
 
+    // Noisy senses (a law): every channel carries jitter. Deterministic, from the
+    // same hash as the noise channel, so it costs no random draws.
+    const jitter = world.rules.sensorNoise;
+    if (jitter > 0) {
+      for (let i = 0; i < SENSORY_COUNT; i++) {
+        if (i === S.noise) continue;
+        const n = hash01((this.id + i * 7919) * 2654435761 + world.tick * 97) - 0.5;
+        s[i] = clamp01(s[i] + n * 2 * jitter);
+      }
+    }
+
     // Current sensory focus, purely for the inspector.
     let focusIndex = -1;
     let focusValue = 0;
@@ -873,13 +916,24 @@ export class Human {
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
       for (let distance = 1.5; distance <= range; distance += step) {
-        if (isWater(tileAt(world.terrain, this.x + cos * distance, this.y + sin * distance))) {
+        if (isFreshAt(world.terrain, this.x + cos * distance, this.y + sin * distance)) {
           if (distance < bestDistance) {
             bestDistance = distance;
             bestAngle = angle;
           }
           break;
         }
+      }
+    }
+
+    // A finished well is fresh water too, and closer than the river for anyone
+    // who lives far from it — which is why wells get built where they do.
+    const well = world.wellNear(this.x, this.y, range);
+    if (well) {
+      const distance = Math.hypot(well.x - this.x, well.y - this.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestAngle = Math.atan2(well.y - this.y, well.x - this.x);
       }
     }
 
@@ -908,10 +962,10 @@ export class Human {
 
   /** Run the neural network for one tick. */
   think(world: SimWorld): void {
-    const valence = this.computeValence(world.dt);
+    const valence = this.computeValence(world.dt, world.rules.painValence, world.rules.negativeValence);
     this.brain.step(this.sensors, valence);
     this.brain.readMotor(this.motor);
-    this.brain.applyPlasticity(this.genome.plasticity, valence * this.genome.neuromodGain);
+    this.brain.applyPlasticity(this.genome.plasticity * world.rules.plasticity, valence * this.genome.neuromodGain);
     this.lastValence = valence;
 
     let best = 0;
@@ -950,19 +1004,25 @@ export class Human {
    * second gives a signal that is quiet while nothing is happening and spikes
    * sharply when the animal actually eats, drinks or is hurt.
    */
-  computeValence(dt: number): number {
+  computeValence(dt: number, painWeight = 1, negativeWeight = 1): number {
     const dEnergy = (this.energy - this.prevEnergy) / 100;
     const dThirst = (this.prevThirst - this.thirst) / 100;
     const dPain = (this.prevPain - this.pain) / 100;
     const dHealth = (this.health - this.prevHealth) / 100;
     const dHunger = (this.prevHunger - this.hunger) / 100;
 
-    this.valenceAccumulator += dEnergy * 1.6 + dThirst * 1.2 + dPain * 2.4 + dHealth * 1.4 + dHunger * 0.8;
+    this.valenceAccumulator +=
+      dEnergy * 1.6 + dThirst * 1.2 + dPain * 2.4 * painWeight + dHealth * 1.4 + dHunger * 0.8;
     this.valenceTimer += dt;
 
     if (this.valenceTimer < VALENCE_WINDOW) return this.lastValenceValue;
 
-    const value = clamp(this.valenceAccumulator * 6, -1, 1);
+    let raw = this.valenceAccumulator * 6;
+    if (raw < 0) raw *= negativeWeight;
+    // An observer's pulse lands on this read-out and is spent.
+    raw += this.pendingPulse;
+    this.pendingPulse = 0;
+    const value = clamp(raw, -1, 1);
     this.valenceAccumulator = 0;
     this.valenceTimer = 0;
     this.lastValenceValue = value;
@@ -1002,6 +1062,8 @@ export class Human {
     desired *= this.locomotionFactor();
     if (this.resting) desired *= 0.25;
     if (this.pain > 45) desired *= 0.7;
+    if (this.fever > 0) desired *= 0.75;
+    desired *= world.trailSpeed(this.x, this.y);
 
     this.speed = desired;
     const moved = this.move(world, desired * dt);
@@ -1024,8 +1086,13 @@ export class Human {
     this.attacking = false;
     this.feeding = false;
 
-    if (m[M.eat] > 0.25) this.tryEat(world);
-    if (m[M.drink] > 0.25) this.tryDrink(world, dt);
+    // The consummatory gates. Measured (vela): a thirsty adult at the shore has a
+    // drink drive barely above the motor pool's common baseline — locomotion
+    // drives of 6-9 lift the baseline — so the command sat at 0.05-0.3 and people
+    // stood in the shallows until the emergency override at thirst 85. See
+    // TUNING.consumeGate for the value the runs settled on.
+    if (m[M.eat] > TUNING.consumeGate) this.tryEat(world);
+    if (m[M.drink] > TUNING.consumeGate) this.tryDrink(world, dt);
     // Violence is possible but rare: only an individual whose aggression gene is
     // high *and* whose network is driving the attack output hard can actually
     // strike. Emergent violence between humans is a legitimate outcome of a
@@ -1115,8 +1182,8 @@ export class Human {
     }
     if (bestIndex < 0) return;
 
-    const wanted = Math.min(1.4, CARRY_CAPACITY - this.wood);
-    const taken = world.harvestWood(bestIndex, wanted);
+    const wanted = Math.min(1.4 * world.workshopBonus(this.x, this.y), CARRY_CAPACITY - this.wood);
+    const taken = world.harvestWood(bestIndex, wanted, this);
     if (taken <= 0) return;
 
     this.wood = Math.min(CARRY_CAPACITY, this.wood + taken);
@@ -1202,7 +1269,7 @@ export class Human {
         this.standingInTimber(world);
 
       if (!withinReach && !extension) return;
-      const founded = world.foundStructure(this.x, this.y, this);
+      const founded = world.foundStructure(this.x, this.y, this, extension);
       if (!founded) return;
       return;
     }
@@ -1346,7 +1413,7 @@ export class Human {
     }
     if (bestIndex < 0) return;
 
-    const taken = world.consumePlant(bestIndex, BITE_SIZE);
+    const taken = world.consumePlant(bestIndex, BITE_SIZE, this);
     if (taken <= 0) return;
 
     this.hunger = clamp(this.hunger - taken * HUNGER_PER_FOOD, 0, 100);
@@ -1364,6 +1431,7 @@ export class Human {
     // that window.
     if (!this.nearWater(world, 2.2)) return;
     this.thirst = clamp(this.thirst - 45 * dt, 0, 100);
+    if (world.tick - this.lastDrinkTick > 40 && world.wellNear(this.x, this.y, 2.2)) world.noteWellDrink(this);
     this.lastDrinkTick = world.tick;
     this.feeding = true;
   }
@@ -1383,10 +1451,10 @@ export class Human {
     const cy = Math.floor(this.y);
     for (let dy = -span; dy <= span; dy++) {
       for (let dx = -span; dx <= span; dx++) {
-        if (isWater(tileAt(world.terrain, cx + dx + 0.5, cy + dy + 0.5))) return true;
+        if (isFreshAt(world.terrain, cx + dx + 0.5, cy + dy + 0.5)) return true;
       }
     }
-    return false;
+    return world.wellNear(this.x, this.y, radius) !== null;
   }
 
   private tryAttack(world: SimWorld): void {
@@ -1410,6 +1478,7 @@ export class Human {
     this.lastAttackTick = world.tick;
     this.attacking = true;
     this.attackTargetId = target.id;
+    world.noteStrike(this);
     // Attacking someone is remembered by both parties, as a discrete event.
     this.memory.shock(target.id, world.tick, world.relatedness(this.id, target.id), -0.25, -0.02);
     target.memory.shock(this.id, world.tick, world.relatedness(this.id, target.id), -0.45, -0.06);
@@ -1445,9 +1514,11 @@ export class Human {
     this.bodyTemperature = world.ambientTemperatureAt(this.x, this.y);
     this.updateDerived(dt);
 
-    // Hunger / thirst / fatigue
-    this.hunger = clamp(this.hunger + HUNGER_RATE * metabolism * dt, 0, 100);
-    this.thirst = clamp(this.thirst + THIRST_RATE * metabolism * dt, 0, 100);
+    // Hunger / thirst / fatigue — scaled by the charter, the season and fate.
+    const rules = world.rules;
+    this.hunger = clamp(this.hunger + HUNGER_RATE * metabolism * rules.hungerRate * TUNING.hungerScale * dt, 0, 100);
+    const thirstScale = rules.thirstRate * world.season.thirst * world.crisis.thirst * TUNING.thirstScale;
+    this.thirst = clamp(this.thirst + THIRST_RATE * metabolism * thirstScale * dt, 0, 100);
 
     if (this.resting) {
       const quality = this.sleeping ? 1.35 : 1;
@@ -1479,7 +1550,9 @@ export class Human {
           0.14 * (this.fatigue / 100) +
           0.12 * (1 - this.health / 100),
       );
-    this.stress += (targetStress - this.stress) * Math.min(1, dt * 1.5);
+    // A shrine nearby softens it: a place to be with the dead.
+    const settled = world.shrineNear(this.x, this.y) ? targetStress * 0.7 : targetStress;
+    this.stress += (settled - this.stress) * Math.min(1, dt * 1.5);
     this.stress = clamp(this.stress, 0, 100);
 
     this.pain = clamp(this.pain - PAIN_DECAY * dt, 0, 100);
@@ -1494,9 +1567,17 @@ export class Human {
     const needsMet = this.hunger < 55 && this.thirst < 55 && this.comfort > 0.6;
     if (needsMet && healthDelta >= 0) {
       const senescense = this.ageBio > AGE_ADULT_END ? 0.55 : 1;
-      healthDelta += HEALTH_REGEN * senescense * (0.5 + 0.5 * this.growth());
+      healthDelta += HEALTH_REGEN * senescense * (0.5 + 0.5 * this.growth()) * rules.healthRegen;
     }
     if (this.pregnancy) healthDelta -= 0.12;
+    if (this.fever > 0) {
+      healthDelta -= 0.32 * rules.damageTaken;
+      this.fever -= 1;
+      if (this.fever === 0 && this.health > 0) {
+        this.immune = true;
+        world.noteFeverRecovered(this);
+      }
+    }
 
     this.health = clamp(this.health + healthDelta * dt, 0, 100);
 
@@ -1505,7 +1586,7 @@ export class Human {
     this.updateStage();
 
     // Senescence hazard — a smooth mortality curve rather than a hard cut-off.
-    const t = this.ageBio / this.genome.lifespan;
+    const t = this.ageBio / (this.genome.lifespan * rules.lifespan);
     if (t > 0.7) {
       const hazard = 2e-4 * Math.exp((t - 0.7) * 26);
       if (world.random() < hazard * dt) {
@@ -1519,6 +1600,7 @@ export class Human {
         if (this.hunger > 88) this.deathReason = 'starvation';
         else if (this.thirst > 86) this.deathReason = 'dehydration';
         else if (this.comfort < 0.35) this.deathReason = 'exposure';
+        else if (this.fever > 0) this.deathReason = 'fever';
         else if (this.pain > 50) this.deathReason = 'injuries';
         else this.deathReason = 'unknown causes';
       }
@@ -1627,6 +1709,10 @@ export class Human {
       recovery: this.recovery,
       house: this.house,
       wood: this.wood,
+      lastBirthTick: this.lastBirthTick,
+      pendingPulse: this.pendingPulse,
+      fever: this.fever,
+      immune: this.immune,
       homeX: this.homeX,
       homeY: this.homeY,
       prevEnergy: this.prevEnergy,
@@ -1665,9 +1751,9 @@ export class Human {
     };
   }
 
-  static deserialize(data: Record<string, unknown>, rng: Rng): Human {
+  static deserialize(data: Record<string, unknown>, rng: Rng, brainOptions?: BrainOptions): Human {
     const genome = data.genome as Genome;
-    const human = new Human(data.id as number, data.name as string, data.sex as number, genome, rng);
+    const human = new Human(data.id as number, data.name as string, data.sex as number, genome, rng, brainOptions);
     human.x = data.x as number;
     human.y = data.y as number;
     human.heading = data.heading as number;
@@ -1695,6 +1781,10 @@ export class Human {
     human.recovery = data.recovery as number;
     human.house = (data.house as number) ?? 0;
     human.wood = (data.wood as number) ?? 0;
+    human.lastBirthTick = (data.lastBirthTick as number) ?? -1e9;
+    human.pendingPulse = (data.pendingPulse as number) ?? 0;
+    human.fever = (data.fever as number) ?? 0;
+    human.immune = (data.immune as boolean) ?? false;
     human.homeX = (data.homeX as number) ?? human.x;
     human.homeY = (data.homeY as number) ?? human.y;
     human.prevEnergy = data.prevEnergy as number;
@@ -1726,7 +1816,7 @@ export class Human {
     human.valenceTimer = (data.valenceTimer as number) ?? 0;
     human.lastValenceValue = (data.lastValenceValue as number) ?? 0;
     human.memory.restore((data.memory as number[][]) ?? []);
-    human.brain.restore(data.brain as number[], human.brain.synCount);
+    human.brain.restore(data.brain as number[] | string, human.brain.synCount);
     if (Array.isArray(data.rngState)) human.rng.setState(data.rngState as number[]);
     return human;
   }

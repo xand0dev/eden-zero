@@ -1,5 +1,7 @@
 import { Rng } from '../rng';
+import { base64ToFloat32, float32ToBase64 } from '../persistence/binary';
 import { BRAIN_DT, BRAIN_SUBSTEPS } from '../../shared/constants';
+import { TUNING } from '../game/tuning';
 import type { Genome } from '../genetics/genome';
 import {
   LOCAL_COUNT,
@@ -330,6 +332,28 @@ const PREDATOR_PRIORS: ReadonlyArray<readonly [number, number, number]> = [
   [S.foodBack, MOTOR(M.turnRight), 0.3],
 ];
 
+/** Number of innate reflex synapses every human brain carries, in `INNATE_PRIORS` order. */
+export const INNATE_PRIOR_COUNT = INNATE_PRIORS.length;
+
+/** Position of an innate reflex in `INNATE_PRIORS`, or -1. */
+export function innatePriorIndex(from: number, to: number): number {
+  return INNATE_PRIORS.findIndex(([a, b]) => a === from && b === to);
+}
+
+/** The innate reflexes as [from, to, birth weight], for the observatory and the atlas. */
+export function innatePriors(): ReadonlyArray<readonly [number, number, number]> {
+  return INNATE_PRIORS;
+}
+
+export interface BrainOptions {
+  /**
+   * Scale on the innate reflex synapses at birth. 1 is the normal brain; the
+   * "tabula rasa" law sets 0.1. Deterministic, so a saved brain regenerates the
+   * same birth weights on load.
+   */
+  innateScale: number;
+}
+
 export interface BrainTopologyStats {
   neurons: number;
   synapses: number;
@@ -422,9 +446,16 @@ export class Brain {
   modGain = 1;
   /** Last computed valence signal (-1..1). */
   lastValence = 0;
+  /**
+   * Index of the first innate reflex synapse. The reflexes are the last
+   * `INNATE_PRIOR_COUNT` synapses a human brain is built with (predators add
+   * their own after), so synapse `innateStart + k` is the same reflex in every
+   * human — the one place two different brains line up synapse for synapse.
+   */
+  innateStart = 0;
 
-  constructor(genome: Genome) {
-    this.build(genome);
+  constructor(genome: Genome, options: BrainOptions = { innateScale: 1 }) {
+    this.build(genome, options.innateScale);
   }
 
   // ---------------------------------------------------------------------
@@ -446,7 +477,7 @@ export class Brain {
    *     what makes `weightDrift` (the proof that learning happened) survive a
    *     save/load round trip.
    */
-  private build(genome: Genome): void {
+  private build(genome: Genome, innateScale: number): void {
     const rng = new Rng(genome.brainSeed);
     const density = clamp(genome.connDensity, 0.5, 1.6);
     const excRatio = clamp(genome.excRatio, 0.5, 0.95);
@@ -603,9 +634,10 @@ export class Brain {
     }
 
     // --- Innate priors ------------------------------------------------------
+    this.innateStart = preList.length;
     for (let p = 0; p < INNATE_PRIORS.length; p++) {
       const [from, to, weight] = INNATE_PRIORS[p];
-      pushEdge(from, to, weight);
+      pushEdge(from, to, weight * innateScale);
     }
     if (genome.species === 1) {
       for (let p = 0; p < PREDATOR_PRIORS.length; p++) {
@@ -623,10 +655,17 @@ export class Brain {
     this.buildAdjacency();
 
     this.initialWeights = this.w.slice();
+    // The set point for homeostatic scaling covers the learned inputs only; the
+    // innate reflexes are left out of it (see `applyHomeostasis`).
+    const innateEnd = this.innateStart + INNATE_PRIORS.length;
     this.initialInStrength = new Float32Array(this.n);
     for (let i = 0; i < this.n; i++) {
       let sum = 0;
-      for (let s = this.inStart[i]; s < this.inStart[i + 1]; s++) sum += Math.abs(this.w[this.inSyn[s]]);
+      for (let s = this.inStart[i]; s < this.inStart[i + 1]; s++) {
+        const index = this.inSyn[s];
+        if (index >= this.innateStart && index < innateEnd) continue;
+        sum += Math.abs(this.w[index]);
+      }
       this.initialInStrength[i] = sum;
     }
   }
@@ -780,8 +819,21 @@ export class Brain {
       this.applyWeightDecay();
     } else {
       const lr = LEARN_RATE * clamp(plasticity, 0, 3) * clamp(valence, -1, 1);
+      // The innate reflex arcs are brainstem, not cortex: far less plastic.
+      //
+      // Measured before this existed (vela, 12 000 ticks): the thirst -> drink
+      // synapse fell from 1.80 to 0.05-0.3 in every brain, children included, and
+      // thirsty people stood at the shore with a drink command of zero until the
+      // emergency override fired. The cause is the credit assignment of a global
+      // learning signal: every costly action (felling, digging, pain) is a
+      // negative valence event, and the thirst sensor and the drink motor are
+      // almost always somewhat active, so each one depresses the reflex a little,
+      // while only the moment of drinking strengthens it. Reflexes can still
+      // change over a life — the atlas records it when they do — just slowly.
+      const innateEnd = this.innateStart + INNATE_PRIORS.length;
+      const innateLr = lr * TUNING.innatePlasticity;
       for (let s = 0; s < this.synCount; s++) {
-        let next = w[s] + lr * elig[s];
+        let next = w[s] + (s >= this.innateStart && s < innateEnd ? innateLr : lr) * elig[s];
         next *= 1 - WEIGHT_DECAY;
         w[s] = clamp(next, -W_MAX, W_MAX);
       }
@@ -817,17 +869,31 @@ export class Brain {
   applyHomeostasis(): void {
     const n = this.n;
     const { w, pre, post, inStart, inSyn } = this;
+    // Scaling regulates what learning grows, and leaves the reflex arcs alone.
+    //
+    // It used to scale every input of a neuron together. As lifetime learning
+    // strengthened a motor neuron's recurrent inputs, the scaling pulled the
+    // whole set back down — the innate reflex with it — so the reflex's share of
+    // the drive shrank toward nothing even with its own plasticity switched off
+    // (measured: thirst -> drink 1.80 -> 0.17 in 15 000 ticks at zero plasticity).
+    const innateStart = this.innateStart;
+    const innateEnd = innateStart + INNATE_PRIORS.length;
     for (let i = 0; i < n; i++) {
       const start = inStart[i];
       const end = inStart[i + 1];
       if (end === start) continue;
       let sum = 0;
-      for (let s = start; s < end; s++) sum += Math.abs(w[inSyn[s]]);
+      for (let s = start; s < end; s++) {
+        const index = inSyn[s];
+        if (index >= innateStart && index < innateEnd) continue;
+        sum += Math.abs(w[index]);
+      }
       const target = this.initialInStrength[i];
       if (sum <= 1e-6 || target <= 1e-6) continue;
       const factor = clamp(target / sum, 0.9, 1.1);
       for (let s = start; s < end; s++) {
         const index = inSyn[s];
+        if (index >= innateStart && index < innateEnd) continue;
         w[index] = clamp(w[index] * factor, -W_MAX, W_MAX);
       }
     }
@@ -910,6 +976,37 @@ export class Brain {
     return sum / this.synCount;
   }
 
+  /** Change since birth of innate reflex `k` (in `INNATE_PRIORS` order). */
+  innateDrift(k: number): number {
+    const s = this.innateStart + k;
+    return this.w[s] - this.initialWeights[s];
+  }
+
+  /** Whether a reflex born at |w| >= `strength` now has the opposite sign, by at least `margin`. */
+  strongReflexReversed(strength: number, margin: number): boolean {
+    for (let k = 0; k < INNATE_PRIORS.length; k++) {
+      const s = this.innateStart + k;
+      const w0 = this.initialWeights[s];
+      const w = this.w[s];
+      if (Math.abs(w0) >= strength && Math.sign(w) !== Math.sign(w0) && Math.abs(w) >= margin) return true;
+    }
+    return false;
+  }
+
+  /** Largest change since birth of any innate reflex, and which one. */
+  maxInnateDrift(): { index: number; drift: number } {
+    let index = -1;
+    let drift = 0;
+    for (let k = 0; k < INNATE_PRIORS.length; k++) {
+      const d = Math.abs(this.innateDrift(k));
+      if (d > drift) {
+        drift = d;
+        index = k;
+      }
+    }
+    return { index, drift };
+  }
+
   /** Mean absolute weight, used by the inspector. */
   meanAbsWeight(): number {
     let sum = 0;
@@ -939,7 +1036,20 @@ export class Brain {
    * restored brain spends one sub-step with a silent network and immediately
    * diverges from the world it was saved from.
    */
-  serialize(): number[] {
+  serialize(): string {
+    // Packed as raw float32 bytes in base64. Every array here is a Float32Array,
+    // so this is exact — a restored brain continues identically — and about a
+    // third of the size of the same numbers written out as JSON decimals, which
+    // was 176 KB per person and the main reason saves outgrew browser storage.
+    // The four slow scalars are JS doubles, not float32, so they ride alongside
+    // as text: squeezing them through a Float32Array would round them, and a
+    // restored brain would drift from the original within a few hundred ticks.
+    const values = this.serializeValues();
+    const arrays = Float32Array.from(values.slice(0, values.length - 4));
+    return `${float32ToBase64(arrays)}|${values.slice(values.length - 4).join(',')}`;
+  }
+
+  private serializeValues(): number[] {
     const n = this.n;
     const out = new Array<number>(n * 4 + this.synCount * 2 + 4);
     let k = 0;
@@ -956,7 +1066,17 @@ export class Brain {
     return out;
   }
 
-  restore(data: readonly number[], expectedSynapses: number): boolean {
+  restore(packed: readonly number[] | string, expectedSynapses: number): boolean {
+    let data: ArrayLike<number> = packed as readonly number[];
+    if (typeof packed === 'string') {
+      const [bytes, scalars = ''] = packed.split('|');
+      const arrays = decodeFloat32(bytes, this.n * 4 + expectedSynapses * 2);
+      const tail = scalars.split(',').map(Number);
+      const all = new Array<number>(arrays.length + 4);
+      for (let i = 0; i < arrays.length; i++) all[i] = arrays[i];
+      for (let i = 0; i < 4; i++) all[arrays.length + i] = tail[i] ?? 0;
+      data = all;
+    }
     const n = this.n;
     const expected = n * 4 + expectedSynapses * 2 + 4;
     if (data.length !== expected || expectedSynapses !== this.synCount) return false;
@@ -979,6 +1099,12 @@ export class Brain {
 }
 
 // ---------------------------------------------------------------------------
+
+function decodeFloat32(text: string, length: number): Float32Array {
+  const out = new Float32Array(length);
+  base64ToFloat32(text, out);
+  return out;
+}
 
 export function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;

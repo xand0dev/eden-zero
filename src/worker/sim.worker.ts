@@ -13,7 +13,7 @@
  *  - Snapshots are throttled independently of the tick rate.
  */
 import { DEFAULT_WORLD_OPTIONS, World, type WorldOptions } from '../simulation/world';
-import { applyGodCommand } from '../simulation/commands';
+import { applyGodCommandChecked } from '../simulation/commands';
 import { DT, MAX_SLICE_MS, MAX_TICKS_PER_SLICE, SIM_HZ, SNAPSHOT_HZ_MAX, SNAPSHOT_HZ_NORMAL, SPEED_TICK_BUDGET } from '../shared/constants';
 import type { DevMetrics } from '../shared/types';
 import type { MainToWorker, WorkerToMain, WorldConfig } from '../shared/protocol';
@@ -29,6 +29,8 @@ let revision = 0;
 let selectedId: number | null = null;
 let lastSnapshotTime = 0;
 let lastDetailTime = 0;
+/** Last chronicle entry the main thread has been sent. */
+let chronicleSent = 0;
 
 // --- metrics ---------------------------------------------------------------
 let tickTimeMs = 0;
@@ -51,11 +53,17 @@ function configToOptions(config: WorldConfig): WorldOptions {
     initialHumans: config.initialHumans,
     initialPredators: config.initialPredators,
     plantDensity: config.plantDensity,
+    mode: config.mode,
+    charter: config.charter,
+    biome: config.biome,
+    founderGenomes: config.founderGenomes,
+    challengeId: config.challengeId,
   };
 }
 
 function genesis(config: WorldConfig): void {
   world = new World(configToOptions(config));
+  chronicleSent = 0;
   accumulator = 0;
   lastFrameTime = performance.now();
   lastTpsSampleTime = lastFrameTime;
@@ -173,7 +181,8 @@ function metrics(): DevMetrics {
 function sendSnapshot(force: boolean): void {
   if (!world) return;
   revision += 1;
-  const snapshot = world.buildSnapshot(revision, metrics());
+  const snapshot = world.buildSnapshot(revision, metrics(), chronicleSent);
+  chronicleSent = world.chronicle.lastId;
   snapshotBytes =
     snapshot.ids.byteLength + snapshot.floats.byteLength + snapshot.meta.byteLength;
 
@@ -196,6 +205,8 @@ function sendSnapshot(force: boolean): void {
       structures: snapshot.structures,
       fields: snapshot.fields,
       canals: snapshot.canals,
+      game: snapshot.game,
+      trails: sendTrails(),
       metrics: snapshot.metrics,
       paused,
       speed,
@@ -203,6 +214,16 @@ function sendSnapshot(force: boolean): void {
     [snapshot.ids.buffer, snapshot.floats.buffer, snapshot.meta.buffer],
   );
   void force;
+}
+
+/** Worn-trail bytes for the renderer, every few seconds rather than every snapshot. */
+let lastTrailsTime = 0;
+function sendTrails(): Uint8Array | null {
+  if (!world) return null;
+  const now = performance.now();
+  if (now - lastTrailsTime < 3000) return null;
+  lastTrailsTime = now;
+  return world.paths.toBytes();
 }
 
 function sendSelectionDetail(): void {
@@ -245,7 +266,8 @@ ctx.onmessage = (event: MessageEvent<MainToWorker>) => {
       case 'god': {
         if (!world) return;
         // Shared with the WebSocket server — see simulation/commands.ts.
-        applyGodCommand(world, message.command);
+        const result = applyGodCommandChecked(world, message.command);
+        post({ type: 'godResult', ok: result.ok, message: result.message, kind: message.command.kind });
         sendSnapshot(true);
         break;
       }
@@ -268,6 +290,18 @@ ctx.onmessage = (event: MessageEvent<MainToWorker>) => {
         break;
       }
 
+      case 'requestChronicle': {
+        if (!world) return;
+        post({ type: 'chronicle', entries: world.chronicle.entries });
+        break;
+      }
+
+      case 'requestBrainPair': {
+        if (!world) return;
+        post({ type: 'brainPair', a: world.brainView(message.a), b: world.brainView(message.b) });
+        break;
+      }
+
       case 'requestGenealogy': {
         if (!world) return;
         post({ type: 'genealogy', forest: world.genealogyForest() });
@@ -283,6 +317,8 @@ ctx.onmessage = (event: MessageEvent<MainToWorker>) => {
       case 'restore': {
         const parsed = JSON.parse(message.payload) as Record<string, unknown>;
         world = World.deserialize(parsed);
+        chronicleSent = 0;
+        lastTrailsTime = 0;
         accumulator = 0;
         lastFrameTime = performance.now();
         selectedId = null;

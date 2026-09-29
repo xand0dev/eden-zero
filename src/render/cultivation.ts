@@ -46,7 +46,7 @@ export class CultivationLayer {
     const seen = new Set<number>();
     for (const field of fields) {
       seen.add(field.id);
-      const key = `${field.stage}|${Math.round(field.growth * 12)}|${Math.round(Math.min(1, field.moisture) * 8)}`;
+      const key = `${field.stage}|${Math.round(field.growth * 12)}|${Math.round(Math.min(1, field.moisture) * 8)}|${field.blighted ? 'b' : ''}|${Math.round((field.fertility ?? 1) * 4)}`;
       let entry = this.fields.get(field.id);
       if (!entry) {
         entry = { graphic: new Graphics(), key: '' };
@@ -189,8 +189,18 @@ function drawField(g: Graphics, field: FieldView): void {
   // The crop: rows of plants that fill out and turn gold.
   const ripe = field.stage === 2;
   const growth = ripe ? 1 : Math.max(0.05, field.growth);
-  const leaf = ripe ? 0xd9b04a : mix(0x6fae3e, 0xa8b848, Math.max(0, growth - 0.6) / 0.4);
-  const tip = ripe ? 0xf5dc86 : mix(0x9fd46a, 0xd8d27a, Math.max(0, growth - 0.7) / 0.3);
+  // Blight browns and blackens the crop; tired soil pales it.
+  const tired = 1 - (field.fertility ?? 1);
+  let leaf = ripe ? 0xd9b04a : mix(0x6fae3e, 0xa8b848, Math.max(0, growth - 0.6) / 0.4);
+  let tip = ripe ? 0xf5dc86 : mix(0x9fd46a, 0xd8d27a, Math.max(0, growth - 0.7) / 0.3);
+  if (tired > 0.3) {
+    leaf = mix(leaf, 0xa8a070, (tired - 0.3) * 0.8);
+    tip = mix(tip, 0xc8c090, (tired - 0.3) * 0.8);
+  }
+  if (field.blighted) {
+    leaf = mix(leaf, 0x4a3a28, 0.7);
+    tip = mix(tip, 0x2a2018, 0.7);
+  }
   // Each row is a continuous line of stems with leaves or ears along it.
   const stems = 9;
   for (let r = 0; r < rows; r++) {

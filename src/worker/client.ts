@@ -1,5 +1,7 @@
 import type {
   BrainView,
+  ChronicleView,
+  GameView,
   CanalView,
   DevMetrics,
   ExplanationView,
@@ -69,6 +71,16 @@ export interface SimState {
   workerLatencyMs: number;
   /** Present only when the server is running a competitive match. */
   match: MatchView | null;
+  /** The game layer: calendar, era, fate, favour. Null for a remote world. */
+  game: GameView | null;
+  /** The chronicle as far as this client has seen it. */
+  chronicle: ChronicleView[];
+  /** Worn trails, one byte per tile, refreshed every few seconds. */
+  trails: Uint8Array | null;
+  /** The last observer command's outcome, for the tools panel. */
+  lastCommand: { ok: boolean; message: string; kind: string; at: number } | null;
+  /** A pair of brains for the lab's side-by-side view. */
+  brainPair: { a: BrainView | null; b: BrainView | null } | null;
 }
 
 const DEFAULT_METRICS: DevMetrics = {
@@ -154,6 +166,19 @@ export class SimClient {
     fps: 0,
     workerLatencyMs: 0,
     match: null,
+    game: null,
+    chronicle: [],
+    trails: null,
+    lastCommand: null,
+    brainPair: null,
+  };
+
+  /** Listeners for game-layer moments: discoveries, chronicle entries, crises. */
+  private gameListeners = new Set<(game: GameView) => void>();
+
+  onGame = (listener: (game: GameView) => void): (() => void) => {
+    this.gameListeners.add(listener);
+    return () => this.gameListeners.delete(listener);
   };
 
   constructor() {
@@ -204,8 +229,25 @@ export class SimClient {
   // --- commands -------------------------------------------------------------
 
   start(config: WorldConfig): void {
-    this.set({ config, phase: 'world', error: null, paused: false, speed: 1 }, true);
+    this.set(
+      { config, phase: 'world', error: null, paused: false, speed: 1, chronicle: [], game: null, lastCommand: null },
+      true,
+    );
     this.send({ type: 'genesis', config });
+  }
+
+  /** Leave the world and go back to the genesis screen. */
+  leave(): void {
+    this.send({ type: 'setSpeed', speed: 0 });
+    this.set({ phase: 'genesis', selectedId: null, detail: null, brain: null, explain: null, game: null }, true);
+  }
+
+  requestChronicle(): void {
+    this.send({ type: 'requestChronicle' });
+  }
+
+  requestBrainPair(a: number, b: number): void {
+    this.send({ type: 'requestBrainPair', a, b });
   }
 
   setSpeed(speed: number): void {
@@ -248,8 +290,10 @@ export class SimClient {
   }
 
   restore(payload: string): void {
-    this.set({ phase: 'world', selectedId: null, detail: null, brain: null, explain: null }, true);
+    this.set({ phase: 'world', selectedId: null, detail: null, brain: null, explain: null, chronicle: [], game: null }, true);
     this.send({ type: 'restore', payload });
+    // The restored world's chronicle arrives whole, not as a trickle.
+    setTimeout(() => this.requestChronicle(), 200);
   }
 
   /** Called by the renderer once per animation frame. */
@@ -348,10 +392,23 @@ export class SimClient {
     structures: StructureView[];
     fields: FieldView[];
     canals: CanalView[];
+    game?: GameView | null;
+    trails?: Uint8Array | null;
     paused: boolean;
     speed: number;
     metrics: DevMetrics;
   }): void {
+    if (snapshot.game) {
+      const fresh = snapshot.game.chronicle;
+      if (fresh.length > 0) {
+        const known = this.state.chronicle;
+        const lastId = known.length > 0 ? known[known.length - 1].id : 0;
+        const added = fresh.filter((entry) => entry.id > lastId);
+        if (added.length > 0) this.state.chronicle = [...known, ...added].slice(-600);
+      }
+      for (const listener of this.gameListeners) listener(snapshot.game);
+    }
+    if (snapshot.trails) this.state.trails = snapshot.trails;
     if (snapshot.revision !== this.lastRevision) {
       this.lastRevision = snapshot.revision;
       const entities = decodeEntities(snapshot.ids, snapshot.floats, snapshot.meta, snapshot.count);
@@ -372,6 +429,7 @@ export class SimClient {
       structures: snapshot.structures,
       fields: snapshot.fields,
       canals: snapshot.canals,
+      game: snapshot.game ?? this.state.game,
       paused: snapshot.paused,
       speed: snapshot.speed,
       metrics: {
@@ -422,12 +480,26 @@ export class SimClient {
           structures: message.structures,
           fields: message.fields,
           canals: message.canals,
+          game: message.game,
+          trails: message.trails,
           paused: message.paused,
           speed: message.speed,
           metrics: message.metrics,
         });
         break;
       }
+
+      case 'godResult':
+        this.set({ lastCommand: { ok: message.ok, message: message.message, kind: message.kind, at: performance.now() } }, true);
+        break;
+
+      case 'chronicle':
+        this.set({ chronicle: message.entries }, true);
+        break;
+
+      case 'brainPair':
+        this.set({ brainPair: { a: message.a, b: message.b } });
+        break;
 
       case 'detail':
         if (message.id === this.state.selectedId) this.set({ detail: message.detail });

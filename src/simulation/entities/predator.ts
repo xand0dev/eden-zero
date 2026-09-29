@@ -6,7 +6,7 @@ import { mutate } from '../genetics/evolution';
 import type { SimWorld } from './context';
 import { EntityKind, LifeStage, Sex } from '../../shared/types';
 import { AGE_ADULT_END, AGE_CHILD_END, BIO_YEAR_SECONDS, AGE_MAX } from '../../shared/constants';
-import { isWater, tileAt, Tile } from '../environment/terrain';
+import { isFreshAt, tileAt, Tile } from '../environment/terrain';
 import { normalizeAngle } from './human';
 
 /**
@@ -297,7 +297,7 @@ export class Predator {
         const angle = this.heading + (spoke / spokes) * Math.PI * 2;
         const px = this.x + Math.cos(angle) * radius;
         const py = this.y + Math.sin(angle) * radius;
-        if (!isWater(tileAt(world.terrain, px, py))) continue;
+        if (!isFreshAt(world.terrain, px, py)) continue;
         const proximity = 1 - ring / (rings + 1);
         const relative = normalizeAngle(angle - this.heading);
         const abs = Math.abs(relative);
@@ -383,7 +383,8 @@ export class Predator {
     const ny = this.y + dy;
     const passable = (x: number, y: number): boolean => {
       const tile = tileAt(world.terrain, x, y);
-      return tile !== Tile.Water && tile !== Tile.Rock;
+      // A finished palisade is a wall to a predator and nothing to a person.
+      return tile !== Tile.Water && tile !== Tile.Rock && !world.blockedForPredators(x, y);
     };
     if (passable(nx, ny)) {
       this.x = nx;
@@ -601,7 +602,7 @@ export class Predator {
     predator.lastWaterScanTick = (data.lastWaterScanTick as number) ?? -10000;
     const waterDir = data.waterDir as { front: number; right: number; back: number; left: number } | undefined;
     if (waterDir) predator.waterDir = { ...waterDir };
-    predator.brain.restore(data.brain as number[], predator.brain.synCount);
+    predator.brain.restore(data.brain as number[] | string, predator.brain.synCount);
     if (Array.isArray(data.rngState)) predator.rng.setState(data.rngState as number[]);
     return predator;
   }

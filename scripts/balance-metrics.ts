@@ -1,3 +1,4 @@
+import { STRUCTURE_NAMES } from '../src/simulation/entities/structure';
 /**
  * Per-seed balance counters.
  *
@@ -316,6 +317,17 @@ export interface BalanceRow {
   wallTimeSeconds: number;
   ticksPerSecond: number;
   samples: PopulationSample[];
+  /** The game layer: era reached, crises faced, stores and land. Absent in old runs. */
+  game?: {
+    era: number;
+    crises: Array<{ kind: string; survived: boolean; before: number; after: number }>;
+    storedFood: number;
+    granaries: number;
+    wells: number;
+    landHealth: number;
+    atlas: number;
+    structures: Record<string, number>;
+  };
 }
 
 export function buildRow(seed: string, world: World, config: RunConfig, run: SeedRun): BalanceRow {
@@ -371,6 +383,32 @@ export function buildRow(seed: string, world: World, config: RunConfig, run: See
     wallTimeSeconds: elapsedSeconds,
     ticksPerSecond: config.ticks / elapsedSeconds,
     samples: run.samples ?? [],
+    game: gameOf(world),
+  };
+}
+
+function gameOf(world: World): BalanceRow['game'] {
+  const structures: Record<string, number> = {};
+  for (const site of world.structures) {
+    if (!site.complete) continue;
+    const name = STRUCTURE_NAMES[site.kind] ?? String(site.kind);
+    structures[name] = (structures[name] ?? 0) + 1;
+  }
+  const centre = world.settlementCentre;
+  return {
+    era: world.eraState.era,
+    crises: world.fate.history.map((r) => ({
+      kind: r.kind,
+      survived: r.survived,
+      before: r.populationBefore,
+      after: r.populationAfter,
+    })),
+    storedFood: world.storedFood,
+    granaries: structures.granary ?? 0,
+    wells: structures.well ?? 0,
+    landHealth: centre ? world.landHealth() : 1,
+    atlas: world.discovered.size,
+    structures,
   };
 }
 

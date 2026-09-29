@@ -29,6 +29,7 @@ const sampleEvery = get('sample-every', '6000');
 const stopAbove = get('stop-above', '0');
 const jobs = Number(get('jobs', String(Math.max(1, cpus().length - 2))));
 const out = get('out', '');
+const tune = get('tune', '');
 
 function runOne(seed: string): Promise<BalanceRow> {
   return new Promise((resolve, reject) => {
@@ -51,6 +52,7 @@ function runOne(seed: string): Promise<BalanceRow> {
         sampleEvery,
         '--stop-above',
         stopAbove,
+        ...(tune ? ['--tune', tune] : []),
       ],
       { stdio: ['ignore', 'pipe', 'inherit'] },
     );
@@ -81,7 +83,11 @@ async function main(): Promise<void> {
       if (out) writeFileSync(`${out}.partial`, JSON.stringify(rows.filter(Boolean), null, 2));
       process.stderr.write(
         `  ${row.seed.padEnd(10)} pop ${row.population} peak ${row.peak} gen ${row.generation} ` +
-          `births ${row.births} deaths ${row.deaths} harvests ${row.harvests} ${row.outcome}\n`,
+          `births ${row.births} deaths ${row.deaths} harvests ${row.harvests} ${row.outcome}` +
+            (row.game
+              ? ` | era ${row.game.era} crises ${row.game.crises.map((c) => `${c.kind}${c.survived ? '' : '✗'}(${c.before}→${c.after})`).join(',') || '-'} store ${row.game.storedFood.toFixed(0)} land ${row.game.landHealth.toFixed(2)} atlas ${row.game.atlas} ${JSON.stringify(row.game.structures)}`
+              : '') +
+            '\n',
       );
     }
   };

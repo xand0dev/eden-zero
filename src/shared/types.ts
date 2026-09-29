@@ -126,7 +126,7 @@ export interface DevMetrics {
 /** Short-lived visual effect produced by the simulation (lightning, birth, ...). */
 export interface WorldEffect {
   id: number;
-  kind: 'lightning' | 'birth' | 'death' | 'mating' | 'attack' | 'spawn' | 'build';
+  kind: 'lightning' | 'birth' | 'death' | 'mating' | 'attack' | 'spawn' | 'build' | 'rain';
   x: number;
   y: number;
   /** Remaining lifetime in simulated seconds. */
@@ -158,6 +158,102 @@ export interface WorldSnapshot {
   fields: FieldView[];
   /** Dug canal lengths. */
   canals: CanalView[];
+  /** Seasons, era, fate, favour and the rest of the game layer. */
+  game: GameView;
+}
+
+/** Someone worth pointing the camera at. */
+export interface SpotlightView {
+  id: number;
+  score: number;
+  reason: string;
+}
+
+export interface EraRequirementView {
+  label: string;
+  current: number;
+  target: number;
+  met: boolean;
+}
+
+export interface CrisisView {
+  kind: string;
+  name: string;
+  phase: 'warning' | 'active';
+  text: string;
+  advice: string;
+  /** Simulated seconds until it begins (warning) or ends (active). */
+  seconds: number;
+  severity: number;
+}
+
+export interface ChronicleView {
+  id: number;
+  tick: number;
+  simTime: number;
+  kind: string;
+  importance: number;
+  title: string;
+  text: string;
+  entityIds: number[];
+  x?: number;
+  y?: number;
+}
+
+/** The game layer, as the client sees it on every snapshot. Small on purpose. */
+export interface GameView {
+  mode: string;
+  biome: string;
+  charter: string[];
+  year: number;
+  season: number;
+  seasonPhase: number;
+  day: number;
+  era: number;
+  /** What the next era needs, and how close the world is. */
+  nextEra: EraRequirementView[];
+  /** 0..1 of the two-day hold, once every requirement is met. */
+  eraHold: number;
+  favour: {
+    enabled: boolean;
+    value: number;
+    cap: number;
+    prices: Record<string, number>;
+    /** Seconds until each tool is ready again; absent when ready. */
+    cooldowns: Record<string, number>;
+    interventions: number;
+    spent: number;
+  };
+  interventionsAllowed: boolean;
+  spawnAllowed: boolean;
+  crisis: CrisisView | null;
+  crisesSurvived: number;
+  crisisHistory: Array<{ kind: string; survived: boolean; year: number }>;
+  storedFood: number;
+  granaries: number;
+  wells: number;
+  trails: number;
+  /** Mean fertility of the land around the village, 0..1. */
+  landHealth: number;
+  spotlight: SpotlightView[];
+  /** Chronicle entries since the previous snapshot. */
+  chronicle: ChronicleView[];
+  chronicleCount: number;
+  /** Atlas entries seen for the first time since the previous snapshot. */
+  discoveries: Array<{ id: string; humanId: number; name: string }>;
+  /** Atlas entries seen in this world so far. */
+  discovered: string[];
+  /** Living people with an epithet, id -> epithet. */
+  epithets: Record<number, string>;
+  /** Positions of burning plants, for the renderer: [x, y, x, y, ...]. */
+  fires: number[];
+  rains: Array<{ x: number; y: number; radius: number }>;
+  fevered: number[];
+  /** Population, per snapshot, for the campaign graph (sampled every half day). */
+  populationHistory: number[];
+  extinct: boolean;
+  /** Age of the oldest living person, in biological years. */
+  oldest: number;
 }
 
 /**
@@ -186,6 +282,8 @@ export interface FieldView {
   stage: number;
   growth: number;
   moisture: number;
+  fertility?: number;
+  blighted?: boolean;
 }
 
 /** One dug length of canal. */
@@ -208,6 +306,9 @@ export interface StructureView {
   lastBuildTick: number;
   builderId: number;
   builderName: string;
+  /** 0 hut, 1 granary, 2 well, 3 workshop, 4 stone house, 5 palisade, 6 shrine. */
+  kind?: number;
+  store?: number;
 }
 
 export interface SocialRecordView {
@@ -305,6 +406,15 @@ export interface HumanDetail {
 
   genome: GeneView[];
   lifespan: number;
+
+  /** Title earned in the atlas, e.g. "the Irrigator". */
+  epithet: string | null;
+  /** Atlas entries this person has earned. */
+  atlas: string[];
+  fever: boolean;
+  /** Where this person's food has come from, in food units. */
+  diet: { wild: number; crop: number; granary: number; carcass: number; gift: number };
+  work: { timber: number; woodLaid: number; completed: number; sown: number; crops: number; canals: number };
 }
 
 export interface BrainView {

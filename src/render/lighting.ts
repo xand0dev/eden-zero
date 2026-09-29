@@ -1,4 +1,5 @@
 import { Texture } from 'pixi.js';
+import { NEUTRAL_MOOD, type Mood } from './seasons';
 
 /**
  * Light and atmosphere.
@@ -11,17 +12,24 @@ import { Texture } from 'pixi.js';
  */
 
 /** A 5x4 colour matrix (row-major, offsets in 0..1) for a sun level in 0..1. */
-export function gradeMatrix(light: number): number[] {
+export function gradeMatrix(light: number, mood: Mood = NEUTRAL_MOOD): number[] {
   const night = smoothstep(0.38, 0.02, light);
   const golden = Math.exp(-(((light - 0.42) / 0.17) ** 2)) * (1 - night * 0.6);
 
-  const saturation = 1.03 - 0.58 * night + 0.06 * golden;
-  const brightness = 1.02 - 0.6 * night - 0.04 * golden;
+  const saturation = (1.03 - 0.58 * night + 0.06 * golden) * mood.saturation;
+  const brightness = (1.02 - 0.6 * night - 0.04 * golden) * mood.brightness;
   const tint = [
     lerp3([1.02, 1.0, 0.96], [1.14, 0.95, 0.76], golden),
     lerp3([1.02, 1.0, 0.96], [0.66, 0.82, 1.28], night),
   ];
-  const t: [number, number, number] = [tint[0][0] * tint[1][0], tint[0][1] * tint[1][1], tint[0][2] * tint[1][2]];
+  // The season's mood is laid under the time of day, weaker at night when
+  // everything is moonlight anyway.
+  const m = mood.tint.map((v) => 1 + (v - 1) * (1 - night * 0.7));
+  const t: [number, number, number] = [
+    tint[0][0] * tint[1][0] * m[0],
+    tint[0][1] * tint[1][1] * m[1],
+    tint[0][2] * tint[1][2] * m[2],
+  ];
 
   const lr = 0.2126;
   const lg = 0.7152;

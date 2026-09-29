@@ -1,7 +1,7 @@
 import { Rng } from '../rng';
 import { EntityKind } from '../../shared/types';
 import { BIO_YEAR_SECONDS } from '../../shared/constants';
-import { Tile, tileAt, type TerrainData } from '../environment/terrain';
+import type { TerrainData } from '../environment/terrain';
 import { clamp } from '../brain/network';
 
 /**
@@ -136,6 +136,40 @@ export const SPECIES_PROFILES: Record<number, SpeciesProfile> = {
   },
 };
 
+/** Where a food pile came from. Wild plants are always `Wild`. */
+export const FoodOrigin = {
+  Wild: 0,
+  Crop: 1,
+  Carcass: 2,
+  Gift: 3,
+  Granary: 4,
+} as const;
+export type FoodOrigin = (typeof FoodOrigin)[keyof typeof FoodOrigin];
+
+/**
+ * What the world does to plant growth this tick: the season, the charter, fate,
+ * and the soil under each plant. Kept as one object so `Plant` stays ignorant of
+ * where any of it comes from.
+ */
+export interface GrowthConditions {
+  /** Multiplier on food regrowth. */
+  regen: number;
+  /** Multiplier on seed dispersal; 0 means nothing sprouts. */
+  spread: number;
+  /** Multiplier on timber regrowth. */
+  timber: number;
+  /** Multiplier on how fast loose food spoils. */
+  spoilage: number;
+  /** Regrowth factor of the ground at a point, 0..1. */
+  soilAt?(x: number, y: number): number;
+  /** Fertility of the ground at a point, 0..1, for seeds. */
+  fertilityAt?(x: number, y: number): number;
+  /** Below this fertility a seed does not take. */
+  seedFloor: number;
+}
+
+const NEUTRAL_GROWTH: GrowthConditions = { regen: 1, spread: 1, timber: 1, spoilage: 1, seedFloor: 0 };
+
 export class Plant {
   readonly kind = EntityKind.Plant;
   id: number;
@@ -154,6 +188,10 @@ export class Plant {
   radius: number;
   /** A food pile left by a harvest rather than by a death or the observer. */
   crop = false;
+  /** Where a food pile came from. */
+  origin: number = FoodOrigin.Wild;
+  /** Who brought in the harvest this pile came from, for the atlas. */
+  harvesterId = 0;
 
   constructor(id: number, species: number, x: number, y: number, rng: Rng, initialGrowth = 0) {
     this.id = id;
@@ -210,7 +248,13 @@ export class Plant {
     return taken;
   }
 
-  update(terrain: TerrainData, dt: number, rng: Rng, canSpread: boolean): Plant | null {
+  update(
+    terrain: TerrainData,
+    dt: number,
+    rng: Rng,
+    canSpread: boolean,
+    conditions: GrowthConditions = NEUTRAL_GROWTH,
+  ): Plant | null {
     const profile = this.profile;
     this.ageBio += dt / BIO_YEAR_SECONDS;
 
@@ -218,20 +262,25 @@ export class Plant {
       this.growth = clamp(this.ageBio / profile.maturityYears, 0, 1);
     }
 
-    // Biomass regenerates toward the mature carrying capacity.
+    // Biomass regenerates toward the mature carrying capacity, as fast as the
+    // season and the ground allow. Grazed-out ground barely regrows at all.
     const capacity = profile.maxFood * this.growth;
     if (profile.regen > 0 && this.food < capacity) {
-      this.food = Math.min(capacity, this.food + profile.regen * this.growth * dt);
+      const soil = conditions.soilAt ? conditions.soilAt(this.x, this.y) : 1;
+      this.food = Math.min(capacity, this.food + profile.regen * this.growth * conditions.regen * soil * dt);
     } else if (profile.regen === 0) {
-      // Food piles only decay.
-      this.food = Math.max(0, this.food - 0.02 * dt);
+      // Food piles only decay, faster in summer heat.
+      this.food = Math.max(0, this.food - 0.02 * conditions.spoilage * dt);
     }
 
     // Timber regrows far more slowly than foliage — a felled tree is a lasting
     // change to the landscape, which is the point.
     const timberCapacity = profile.maxTimber * this.growth;
     if (profile.timberRegen > 0 && this.timber < timberCapacity) {
-      this.timber = Math.min(timberCapacity, this.timber + profile.timberRegen * this.growth * dt);
+      this.timber = Math.min(
+        timberCapacity,
+        this.timber + profile.timberRegen * this.growth * conditions.timber * dt,
+      );
     }
 
     if (this.ageBio >= profile.lifespanYears || (profile.regen === 0 && this.food <= 0)) {
@@ -251,7 +300,14 @@ export class Plant {
       const distance = rng.range(1.2, profile.seedRange);
       const sx = this.x + Math.cos(angle) * distance;
       const sy = this.y + Math.sin(angle) * distance;
-      if (isFertileSpot(terrain, sx, sy)) {
+      // The season decides whether a seed that lands takes at all (nothing
+      // sprouts in winter), and exhausted ground refuses it. Drawn after the
+      // dispersal roll so a world with neutral conditions consumes the random
+      // stream exactly as before.
+      const takes =
+        conditions.spread >= 1 || rng.next() < conditions.spread;
+      const ground = conditions.fertilityAt ? conditions.fertilityAt(sx, sy) : 1;
+      if (takes && ground >= conditions.seedFloor && isFertileSpot(terrain, sx, sy)) {
         const childSpecies = pickOffspringSpecies(this.species, rng);
         return new Plant(0, childSpecies, sx, sy, rng, 0);
       }
@@ -272,6 +328,8 @@ export class Plant {
       radius: this.radius,
       alive: this.alive,
       ...(this.crop ? { crop: true } : {}),
+      ...(this.origin !== FoodOrigin.Wild ? { origin: this.origin } : {}),
+      ...(this.harvesterId ? { harvesterId: this.harvesterId } : {}),
     };
   }
 
@@ -291,6 +349,8 @@ export class Plant {
     plant.radius = data.radius as number;
     plant.alive = data.alive as boolean;
     plant.crop = (data.crop as boolean | undefined) ?? false;
+    plant.origin = (data.origin as number | undefined) ?? (plant.crop ? FoodOrigin.Crop : FoodOrigin.Wild);
+    plant.harvesterId = (data.harvesterId as number | undefined) ?? 0;
     return plant;
   }
 }
@@ -299,8 +359,8 @@ function isFertileSpot(terrain: TerrainData, x: number, y: number): boolean {
   const tx = Math.floor(x);
   const ty = Math.floor(y);
   if (tx < 1 || ty < 1 || tx >= terrain.width - 1 || ty >= terrain.height - 1) return false;
-  const tile = tileAt(terrain, x, y);
-  return tile === Tile.Grass || tile === Tile.Forest;
+  // The terrain's fertile mask: grass and forest, and reed shallows on an archipelago.
+  return terrain.fertile[ty * terrain.width + tx] === 1;
 }
 
 /**

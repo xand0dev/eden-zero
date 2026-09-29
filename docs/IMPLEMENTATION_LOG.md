@@ -408,3 +408,77 @@ long take did not change action (always move-forward), so the video does not cla
 activity precedes decisions.
 
 `npm run build`: pass. `vitest` (3 threads): 168/168 pass.
+
+## The game layer (owner: "implement all of it" — docs/GAMEPLAY_PLAN.md)
+
+Built in `src/simulation/game/` (simulation) and `src/meta/`, `src/ui/game.ts`,
+`src/components/game/` (observer side). The rule from the plan held throughout:
+the observer changes physics, bodies, genomes and the learning signal; nothing
+writes a decision.
+
+Simulation (deterministic, saved, replayable):
+- **Calendar** — year = 8 days (32 min at ×1); seasons scale plant regrowth,
+  seed dispersal, field growth, thirst, spoilage, harvest yield, temperature.
+- **Soil** — grazing lowers a tile's fertility; wild regrowth ∝ fertility²; seeds
+  refuse exhausted ground; recovery toward full. Fields have their own fertility,
+  lose it per harvest, recover 15× faster fallow (crop rotation pays).
+- **Eras I–V** — read from world state, held two days; sensed on `settlementStage`
+  (channel 63, zero until now); granary store sensed on `storedFood` (62).
+- **Structure kinds** — granary, well, workshop, stone house, palisade, shrine; the
+  kind is decided by the site's surroundings and era (`game/buildings.ts`), never
+  by a new motor. Dwellings now warm the air around them.
+- **Fate** — 8 crises from a separate `seed:fate` stream, a day's warning,
+  era-gated, physics-only (drought, harsh winter, predator migration, blight,
+  flood, fever, fire, eclipse).
+- **Favour** — single-player budget (costs, cooldowns, rewards for births,
+  generations, discoveries, crises weathered); off in sandbox.
+- **Laws** (42) and **biomes** (6, terrain parameters; the valley generates the
+  original island bit for bit — tested).
+- **Atlas** (44 entries) — an observational classifier over per-person counters;
+  epithets; chronicle with data-only obituaries; replays = options + command log
+  (`game/replay.ts`, verified by state hash in tests).
+- New observer tools: rain, bless, reward pulse, pain pulse.
+
+Observer side: profile in `localStorage` (atlas, 152-entry codex, medals, dailies,
+vault of up to 12 genomes with copy/paste strings), 30 challenges, a daily world
+from the date, new Genesis (campaign / challenges / daily / sandbox, biome and
+charter pickers with unlocks), HUD (era with requirements, season, favour, crisis
+banner, toasts), journal (chronicle with population graph, atlas, codex, vault,
+neuro-lab with side-by-side brains), campaign summary, first-dawn tutorial,
+director camera and auto slow-down at ×5/×20.
+
+Saves: brain state packed as exact float32 base64 (the four double scalars kept as
+text — squeezing them through float32 made a restored brain diverge), soil and
+trails exact, worlds in IndexedDB gzip-compressed with a `localStorage` fallback.
+A brain went from 176 KB of JSON to about 53 KB.
+
+### Measured: the reflexes were being erased (a brain bug, not balance)
+
+A 100k-tick sweep of the new code on 8 seeds: dehydration 83 of 163 deaths.
+`scripts/.scratch/drink-probe.ts` then showed thirsty people *standing at the
+shore* with a mean drink command of 0.013 (adults) and 0.000 (children); they only
+drank when the emergency override fired at thirst 85.
+
+`drink-weights.ts`: the innate `thirst → drink` synapse fell from 1.80 to
+0.05–0.3 within 12 000 ticks in every brain, children included; `hunger → eat`
+likewise. Turning the reflexes' own plasticity to zero did **not** stop it
+(1.80 → 0.17 in 15 000 ticks). The cause was homeostatic synaptic scaling: it held
+each neuron's total input strength at its birth value, so as learning grew a motor
+neuron's recurrent inputs, the scaling pulled every input down together — the
+reflex's share of the drive shrank toward nothing.
+
+Fix (`Brain.applyHomeostasis`): scaling regulates only the learned inputs and
+leaves the innate reflex synapses alone. After it, over 30 000 ticks the reflex
+means stay at drink 1.78, eat 1.78, mate ~1.1. This is very likely also what erased
+`libido → mate` in the E4 investigation.
+
+Second finding: even with the reflex intact, the drink command sat at 0.05–0.3,
+because the motor read-out subtracts an adaptive common baseline and locomotion
+drives of 6–9 lift it. The consumption gate (0.25) is now `TUNING.consumeGate`.
+Single-seed probe (vela, 40 000 ticks): gate 0.12 → pop 11, gate 0.06 → pop 29.
+
+Third: with the scaling fixed, reflexes do learn — the median largest reflex drift
+at 30 000 ticks is 1.7–2.3 — so the atlas's legendary "Relearned" was earned by
+everyone. It now requires a reflex born at |w| ≥ 1.2 to have reversed sign.
+
+`npm run build`: pass. `vitest` (1 thread): 202/202 pass.

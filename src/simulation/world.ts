@@ -1,22 +1,46 @@
 import { Rng } from './rng';
-import { DT, MAX_CANALS, MAX_EVENTS, MAX_FIELDS, MAX_PLANTS, MAX_POPULATION, MAX_PREDATORS, MAX_STRUCTURES, SPATIAL_CELL, WORLD_H, WORLD_W } from '../shared/constants';
+import { DAY_SECONDS, DT, MAX_CANALS, MAX_EVENTS, MAX_FIELDS, MAX_PLANTS, MAX_POPULATION, MAX_PREDATORS, MAX_STRUCTURES, SIM_HZ, SPATIAL_CELL, WORLD_H, WORLD_W, AGE_ADULT_END, AGE_CHILD_END } from '../shared/constants';
 import { SpatialGrid } from './spatial/grid';
-import { generateTerrain, nearestWalkable, computeWaterDistance, tileAt, waterDistanceAt, Tile, type TerrainData } from './environment/terrain';
+import { generateTerrain, nearestWalkable, computeWaterDistance, tileAt, waterDistanceAt, Tile, isFreshAt, type TerrainData } from './environment/terrain';
 import { ambientTemperature, createClimate, updateClimate, type Climate } from './environment/climate';
 import { Human, MATING_DURATION, MATING_REFRACTORY } from './entities/human';
 import { Predator } from './entities/predator';
-import { Plant, PlantSpecies, SPECIES_PROFILES } from './entities/plant';
-import { Structure, WOOD_PER_HUT, type StructureData } from './entities/structure';
+import { FoodOrigin, Plant, PlantSpecies, SPECIES_PROFILES, type GrowthConditions } from './entities/plant';
+import { Structure, StructureKind, STRUCTURE_NAMES, WOOD_PER_HUT, isDwelling, type StructureData } from './entities/structure';
 import {
   CANAL_REACH,
   CANAL_SOURCE_RANGE,
   Canal,
   Field,
   FIELD_YIELD,
+  FieldStage,
   type CanalData,
   type FieldData,
+  type FieldFactors,
 } from './entities/cultivation';
-import type { HouseStats } from '../shared/types';
+import { calendarAt, seasonFactors, SEASON_NAMES, YEAR_SECONDS, type SeasonFactors } from './game/calendar';
+import { DEFAULT_RULES, rulesFor, type WorldRules } from './game/laws';
+import { biomeById, terrainParamsFor } from './game/biomes';
+import { Soil, SOIL_SEED_FLOOR, SOIL_UPDATE_INTERVAL } from './game/soil';
+import { Paths, PATH_SPEED } from './game/paths';
+import { createEraState, ERA_CHECK_INTERVAL, ERA_NAMES, ERA_NUMERALS, ERA_SENSOR, Era, requirementsFor, updateEra, type EraInputs, type EraState } from './game/eras';
+import { CRISES, createFate, crisisFactors, NEUTRAL_FACTORS, updateFate, type CrisisFactors, type FateState } from './game/crises';
+import { createFavour, FAVOUR_BASE_RATE, FAVOUR_REWARDS, favourCap, grant, priceOf, type FavourState } from './game/favour';
+import { Chronicle, obituary, ordinal, type ChronicleEntry } from './game/chronicle';
+import { ATLAS, atlasEntry, createLog, epithetFor, evaluate, regionIndex, SAMPLE_INTERVAL, type AtlasSubject, type BehaviourLog } from './game/atlas';
+import {
+  GRANARY_RANGE,
+  GRANARY_SPOILAGE_PER_DAY,
+  GRANARY_STALL,
+  PALISADE_BLOCK,
+  SHRINE_RANGE,
+  WELL_REACH,
+  WORKSHOP_BONUS,
+  WORKSHOP_RANGE,
+  structureKindFor,
+} from './game/buildings';
+import type { GameView, HouseStats, SpotlightView } from '../shared/types';
+import type { GodCommand } from '../shared/protocol';
 import type { SimWorld } from './entities/context';
 import { cloneGenome, randomGenome, geneDef, sanitizeGenome, type GeneKey, type Genome } from './genetics/genome';
 import { reproduce } from './genetics/evolution';
@@ -81,6 +105,11 @@ const UNFINISHED_WORK_RANGE = 10;
  */
 const CANAL_LINK = 3.2;
 
+const TICKS_PER_DAY = DAY_SECONDS * SIM_HZ;
+/** First of the four threat channels (front, right, back, left). */
+const S_THREAT_FRONT = 12;
+const TICKS_PER_YEAR = YEAR_SECONDS * SIM_HZ;
+
 /**
  * Everything we keep about a birth, so the inspector can later answer
  * "which genes came from whom, and what mutated?" even after the parents die.
@@ -93,12 +122,25 @@ export interface StoredInheritance {
   fatherId: number | null;
 }
 
+/** How the world is played. */
+export type WorldMode = 'campaign' | 'sandbox' | 'challenge' | 'daily';
+
 export interface WorldOptions {
   seed: string;
   initialHumans: number;
   initialPredators: number;
   /** Initial plant density multiplier. */
   plantDensity: number;
+  /** Absent in older saves and in tests: a sandbox, where favour is off. */
+  mode?: WorldMode;
+  /** Law ids. See `game/laws.ts`. */
+  charter?: string[];
+  /** Biome id. See `game/biomes.ts`. */
+  biome?: string;
+  /** Genomes from the vault that replace the first founders' random ones. */
+  founderGenomes?: Genome[];
+  /** Challenge this world was started for, if any. */
+  challengeId?: string;
 }
 
 export const DEFAULT_WORLD_OPTIONS: Omit<WorldOptions, 'seed'> = {
@@ -195,6 +237,40 @@ export class World implements SimWorld {
   private fieldGrid: SpatialGrid;
   private canalGrid: SpatialGrid;
 
+  // --- the game layer ----------------------------------------------------
+  /** The charter and biome, resolved into numbers the physics reads. */
+  readonly rules: WorldRules;
+  /** Seasonal physics this tick. */
+  season: SeasonFactors;
+  /** Crisis physics this tick. */
+  crisis: CrisisFactors = NEUTRAL_FACTORS;
+  /** Ground fertility: the carrying capacity. */
+  readonly soil: Soil;
+  /** Worn trails. */
+  readonly paths: Paths;
+  eraState: EraState = createEraState();
+  fate: FateState;
+  favour: FavourState;
+  readonly chronicle = new Chronicle();
+  /** Behaviour records for the atlas, by person id. Kept for the dead too, until compacted. */
+  readonly logs = new Map<number, BehaviourLog>();
+  /** First time each atlas entry was seen in this world. */
+  readonly discovered = new Map<string, { tick: number; humanId: number; name: string }>();
+  /** Atlas entries seen this session that the observer has not been told about yet. */
+  pendingDiscoveries: string[] = [];
+  /** Every accepted observer command, with the tick it was applied at: a replay. */
+  commandLog: Array<{ tick: number; command: GodCommand }> = [];
+  /** Plants on fire, by plant id, with ticks left to burn. */
+  readonly burning = new Map<number, number>();
+  /** Structures on fire, by structure id, with ticks left to burn. */
+  readonly burningStructures = new Map<number, number>();
+  /** Rain showers the observer has called, still falling. */
+  rains: Array<{ x: number; y: number; radius: number; ticks: number }> = [];
+  /** Who is in the spotlight, for the director camera. */
+  spotlight: SpotlightView[] = [];
+  /** People who have died, kept briefly for obituaries and the atlas. */
+  private lastCrisisSurvivedCount = 0;
+
   /** Lifetime counters that must survive entity death. */
   births = 0;
   deaths = 0;
@@ -218,9 +294,17 @@ export class World implements SimWorld {
     this.options = options;
     this.seed = options.seed;
     this.rng = new Rng(`${options.seed}:world`);
-    this.terrain = generateTerrain(options.seed);
+    const rules = rulesFor(options.charter ?? []);
+    biomeById(options.biome).apply(rules);
+    this.rules = rules;
+    this.terrain = generateTerrain(options.seed, WORLD_W, WORLD_H, terrainParamsFor(options.biome));
     this.waterDistance = computeWaterDistance(this.terrain);
     this.climate = createClimate();
+    this.soil = new Soil(this.terrain.width, this.terrain.height);
+    this.paths = new Paths(this.terrain.width, this.terrain.height);
+    this.season = seasonFactors(0, this.seasonOptions());
+    this.fate = createFate(options.seed, rules.crisisFrequency);
+    this.favour = createFavour(options.mode !== undefined && options.mode !== 'sandbox');
 
     this.humanGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
     this.predatorGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
@@ -230,8 +314,8 @@ export class World implements SimWorld {
     this.canalGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
 
     this.seedPlants(options.plantDensity);
-    this.seedFounders(options.initialHumans);
-    this.seedPredators(options.initialPredators);
+    this.seedFounders(rules.foundersOverride > 0 ? rules.foundersOverride : options.initialHumans);
+    this.seedPredators(Math.round(options.initialPredators * rules.predatorsAtGenesis));
 
     // Populate the spatial grids immediately.
     //
@@ -242,7 +326,29 @@ export class World implements SimWorld {
     // test, which is exactly the kind of thing a test should catch.
     this.rebuildGrids();
 
-    this.emitEvent('milestone', `Genesis — ${options.initialHumans} humans awaken in world "${options.seed}".`, []);
+    const founders = this.humans.length;
+    this.emitEvent('milestone', `Genesis — ${founders} humans awaken in world "${options.seed}".`, []);
+    this.chronicle.add({
+      tick: 0,
+      simTime: 0,
+      kind: 'genesis',
+      importance: 3,
+      title: 'Genesis',
+      text: `${founders} people wake beside fresh water on the island of ${options.seed}, in the ${biomeById(options.biome).name.toLowerCase()}.`,
+      entityIds: this.humans.map((h) => h.id),
+      x: this.settlementCentre?.x,
+      y: this.settlementCentre?.y,
+    });
+    for (const human of this.humans) this.logs.set(human.id, createLog(human.id));
+  }
+
+  private seasonOptions(): { amplitude: number; eternalSpring: boolean } {
+    return { amplitude: this.rules.seasonAmplitude, eternalSpring: this.rules.eternalSpring };
+  }
+
+  /** Options for building a human brain under this world's laws. */
+  get brainOptions(): { innateScale: number } {
+    return { innateScale: this.rules.innatePriors };
   }
 
   // ---------------------------------------------------------------------
@@ -306,11 +412,17 @@ export class World implements SimWorld {
       );
       // Guarantee a 4/4 split for the default of eight founders.
       const sex = i % 2 === 0 ? Sex.Female : Sex.Male;
-      const genome = randomGenome(this.rng, 0);
+      let genome = randomGenome(this.rng, 0);
+      // A genome from the vault replaces the random one. The random draw above
+      // still happens, so the rest of genesis consumes the stream identically.
+      const vaulted = this.options.founderGenomes?.[i];
+      if (vaulted) genome = sanitizeGenome(cloneGenome(vaulted));
       const name = this.nameRegistry.claim(FOUNDER_NAMES[i % FOUNDER_NAMES.length]);
-      const human = new Human(this.nextEntityId++, name, sex, genome, this.rng.fork());
+      const human = new Human(this.nextEntityId++, name, sex, genome, this.rng.fork(), this.brainOptions);
       human.x = x;
       human.y = y;
+      human.homeX = x;
+      human.homeY = y;
       human.heading = this.rng.range(-Math.PI, Math.PI);
       human.birthTick = 0;
       // Founders start as young adults: the world should begin with a chance.
@@ -418,6 +530,84 @@ export class World implements SimWorld {
     return this.rng.next();
   }
 
+  // ---------------------------------------------------------------------
+  // The game layer, as the inhabitants feel it
+  // ---------------------------------------------------------------------
+
+  /** Finished structures by kind, rebuilt with the grids every tick. */
+  private readonly finished: Structure[][] = [[], [], [], [], [], [], []];
+  /** Total food held in granaries. */
+  storedFood = 0;
+
+  get era(): number {
+    return this.eraState.era;
+  }
+
+  get eraSensor(): number {
+    return ERA_SENSOR[this.eraState.era] ?? 0;
+  }
+
+  get storedFoodSensor(): number {
+    const population = Math.max(1, this.humans.length);
+    return Math.min(1, this.storedFood / (4 * population));
+  }
+
+  private finishedNear(kind: number, x: number, y: number, radius: number): Structure | null {
+    const list = this.finished[kind];
+    let best: Structure | null = null;
+    let bestDistance = radius;
+    for (let i = 0; i < list.length; i++) {
+      const site = list[i];
+      const distance = Math.hypot(site.x - x, site.y - y);
+      if (distance <= bestDistance) {
+        bestDistance = distance;
+        best = site;
+      }
+    }
+    return best;
+  }
+
+  wellNear(x: number, y: number, radius: number): { x: number; y: number } | null {
+    if (this.finished[StructureKind.Well].length === 0) return null;
+    return this.finishedNear(StructureKind.Well, x, y, radius + WELL_REACH - 1);
+  }
+
+  workshopBonus(x: number, y: number): number {
+    return this.finishedNear(StructureKind.Workshop, x, y, WORKSHOP_RANGE) ? WORKSHOP_BONUS : 1;
+  }
+
+  trailSpeed(x: number, y: number): number {
+    return this.eraState.era >= Era.Village && this.paths.isTrail(x, y) ? PATH_SPEED : 1;
+  }
+
+  shrineNear(x: number, y: number): boolean {
+    return this.finishedNear(StructureKind.Shrine, x, y, SHRINE_RANGE) !== null;
+  }
+
+  blockedForPredators(x: number, y: number): boolean {
+    if (this.finished[StructureKind.Palisade].length === 0) return false;
+    return this.finishedNear(StructureKind.Palisade, x, y, PALISADE_BLOCK) !== null;
+  }
+
+  private logOf(human: { id: number }): BehaviourLog | undefined {
+    return this.logs.get(human.id);
+  }
+
+  noteWellDrink(human: Human): void {
+    const log = this.logOf(human);
+    if (log) log.wellDrinks += 1;
+  }
+
+  noteStrike(attacker: Human): void {
+    const log = this.logOf(attacker);
+    if (log) log.struck += 1;
+  }
+
+  noteFeverRecovered(human: Human): void {
+    const log = this.logOf(human);
+    if (log) log.feverRecovered += 1;
+  }
+
   getHuman(id: number): Human | undefined {
     return this.humanById.get(id);
   }
@@ -439,17 +629,41 @@ export class World implements SimWorld {
   }
 
   ambientTemperatureAt(x: number, y: number): number {
-    return ambientTemperature(this.terrain, this.climate, x, y);
+    let temperature =
+      ambientTemperature(this.terrain, this.climate, x, y) +
+      this.season.temperature +
+      this.crisis.temperature +
+      this.rules.temperatureOffset;
+    // A finished dwelling holds warmth the way a rock shelter does, a stone
+    // house more so. This is what makes a hut worth having in winter.
+    const count = this.structureGrid.queryCircle(x, y, 5, this.structureScratch);
+    let warmth = 0;
+    for (let i = 0; i < count; i++) {
+      const site = this.structures[this.structureScratch[i]];
+      if (!site || !site.complete || !isDwelling(site.kind)) continue;
+      const reach = site.kind === StructureKind.StoneHouse ? 5 : 4;
+      const distance = Math.hypot(site.x - x, site.y - y);
+      if (distance >= reach) continue;
+      const strength = (1 - distance / reach) * (site.kind === StructureKind.StoneHouse ? 0.9 : 0.7);
+      if (strength > warmth) warmth = strength;
+    }
+    if (warmth > 0) temperature += (6.5 - temperature) * warmth;
+    return temperature;
   }
 
   queryStructures(x: number, y: number, radius: number, out: number[]): number {
     return this.structureGrid.queryCircle(x, y, radius, out);
   }
 
-  harvestWood(plantIndex: number, amount: number): number {
+  harvestWood(plantIndex: number, amount: number, worker?: Human): number {
     const plant = this.plants[plantIndex];
     if (!plant || !plant.alive) return 0;
-    return plant.takeTimber(amount);
+    const taken = plant.takeTimber(amount);
+    if (worker && taken > 0) {
+      const log = this.logOf(worker);
+      if (log) log.timber += taken;
+    }
+    return taken;
   }
 
   // ---------------------------------------------------------------------
@@ -464,6 +678,9 @@ export class World implements SimWorld {
    */
   private waterAt(x: number, y: number): boolean {
     if (waterDistanceAt(this.terrain, this.waterDistance, x, y) <= CANAL_SOURCE_RANGE) return true;
+    for (const rain of this.rains) {
+      if (Math.hypot(rain.x - x, rain.y - y) <= rain.radius) return true;
+    }
     const count = this.queryCanals(x, y, CANAL_REACH, this.canalScratch);
     for (let i = 0; i < count; i++) {
       const canal = this.canals[this.canalScratch[i]];
@@ -521,7 +738,11 @@ export class World implements SimWorld {
    * per length, which matters when a canal is twenty tiles long.
    */
   updateCultivation(): void {
-    for (const field of this.fields) field.update(DT, this.waterAt(field.x, field.y));
+    const factors: FieldFactors = {
+      growth: this.season.fieldGrowth * this.crisis.fieldGrowth,
+      dry: this.rules.dryness * this.crisis.fieldDry,
+    };
+    for (const field of this.fields) field.update(DT, this.waterAt(field.x, field.y), factors);
 
     for (const canal of this.canals) canal.flowing = false;
     for (let pass = 0; pass < 2; pass++) {
@@ -588,9 +809,20 @@ export class World implements SimWorld {
     if (tileAt(this.terrain, x, y) !== Tile.Grass) return null;
     if (this.within(this.fieldGrid, this.fields, x, y, 4.5, this.fieldScratch) > 0) return null;
     const field = new Field(this.nextEntityId++, x, y);
+    field.fallowSince = this.tick;
     this.fields.push(field);
     this.fieldGrid.insert(this.fields.length - 1, x, y);
     this.emitEvent('build', `${worker.name} broke ground on a new field.`, [worker.id]);
+    this.chronicle.first('field', {
+      tick: this.tick,
+      simTime: this.simTime,
+      importance: 3,
+      title: 'The first field',
+      text: `${worker.name} broke ground for the first field. Nobody told anyone to farm.`,
+      entityIds: [worker.id],
+      x,
+      y,
+    });
     this.addEffect('build', x, y, 2.6, 1.8);
     return field;
   }
@@ -598,7 +830,10 @@ export class World implements SimWorld {
   sowField(index: number, worker: Human): boolean {
     const field = this.fields[index];
     if (!field) return false;
-    if (!field.sow(this.tick, worker.name)) return false;
+    if (!field.sow(this.tick, worker.name, TICKS_PER_DAY)) return false;
+    field.sowerId = worker.id;
+    const log = this.logOf(worker);
+    if (log) log.fieldsSown += 1;
     this.emitEvent('build', `${worker.name} sowed a field.`, [worker.id]);
     this.addEffect('build', field.x, field.y, 1.8, 1.2);
     return true;
@@ -614,26 +849,56 @@ export class World implements SimWorld {
   harvestField(index: number, worker: Human): boolean {
     const field = this.fields[index];
     if (!field) return false;
+    const rotated = field.rotation;
+    const sowerId = field.sowerId;
+    const amount = field.yieldNow() * this.season.harvestYield;
     if (!field.harvest(this.tick, worker.name)) return false;
+    void FIELD_YIELD;
 
-    // Always, even at the plant cap. The cap exists to stop wild growth filling
-    // the map; with it applied here, a long-running world — which sits at the
-    // cap permanently — turned every harvest into nothing but an event. Carcasses
-    // were already exempt for the same reason.
-    const pile = new Plant(
-      this.nextEntityId++,
-      PlantSpecies.FoodPile,
-      field.x + this.rng.range(-1.2, 1.2),
-      field.y + this.rng.range(-1.2, 1.2),
-      this.rng,
-      1,
-    );
-    pile.food = FIELD_YIELD;
-    pile.crop = true;
-    this.plants.push(pile);
-    this.plantGrid.insert(this.plants.length - 1, pile.x, pile.y);
+    // Into the granary if there is one close enough; otherwise onto the ground.
+    const granary = this.finishedNear(StructureKind.Granary, field.x, field.y, GRANARY_RANGE);
+    if (granary) {
+      granary.store += amount;
+      this.storedFood += amount;
+    } else {
+      // Always, even at the plant cap. The cap exists to stop wild growth
+      // filling the map; with it applied here, a long-running world — which sits
+      // at the cap permanently — turned every harvest into nothing but an event.
+      // Carcasses were already exempt for the same reason.
+      const pile = new Plant(
+        this.nextEntityId++,
+        PlantSpecies.FoodPile,
+        field.x + this.rng.range(-1.2, 1.2),
+        field.y + this.rng.range(-1.2, 1.2),
+        this.rng,
+        1,
+      );
+      pile.food = amount;
+      pile.crop = true;
+      pile.origin = FoodOrigin.Crop;
+      pile.harvesterId = worker.id;
+      this.plants.push(pile);
+      this.plantGrid.insert(this.plants.length - 1, pile.x, pile.y);
+    }
 
-    this.emitEvent('build', `${worker.name} brought in a crop.`, [worker.id]);
+    // Atlas bookkeeping: who reaped, whose canals watered it, whose rotation paid.
+    const log = this.logOf(worker);
+    if (log) log.crops += 1;
+    const credited = new Set<number>();
+    const canalCount = this.within(this.canalGrid, this.canals, field.x, field.y, CANAL_REACH + 0.5, this.canalScratch);
+    for (let i = 0; i < canalCount; i++) {
+      const canal = this.canals[this.canalScratch[i]];
+      if (!canal?.flowing || !canal.finisherId || credited.has(canal.finisherId)) continue;
+      credited.add(canal.finisherId);
+      const digger = this.logs.get(canal.finisherId);
+      if (digger) digger.irrigated += 1;
+    }
+    if (rotated && sowerId) {
+      const sower = this.logs.get(sowerId);
+      if (sower) sower.rotations += 1;
+    }
+
+    this.emitEvent('build', `${worker.name} brought in a crop${granary ? ' and stored it' : ''}.`, [worker.id]);
     this.addEffect('build', field.x, field.y, 3.2, 2.2);
     return true;
   }
@@ -672,8 +937,21 @@ export class World implements SimWorld {
   digCanal(index: number, worker: Human): boolean {
     const canal = this.canals[index];
     if (!canal) return false;
-    const finished = canal.dig(this.tick);
+    const finished = canal.dig(this.tick, this.workshopBonus(canal.x, canal.y));
     if (finished) {
+      canal.finisherId = worker.id;
+      const log = this.logOf(worker);
+      if (log) log.canalsFinished += 1;
+      this.chronicle.first('canal', {
+        tick: this.tick,
+        simTime: this.simTime,
+        importance: 3,
+        title: 'The first canal',
+        text: `${worker.name} finished the first length of canal.`,
+        entityIds: [worker.id],
+        x: canal.x,
+        y: canal.y,
+      });
       this.emitEvent('build', `${worker.name} finished a length of canal.`, [worker.id]);
       this.addEffect('build', canal.x, canal.y, 2.4, 1.6);
     }
@@ -685,19 +963,40 @@ export class World implements SimWorld {
     if (!site || site.complete) return 0;
     const accepted = site.contribute(amount, this.tick, builder.id, builder.name);
     if (accepted <= 0) return 0;
+    const log = this.logOf(builder);
+    if (log) {
+      log.woodLaid += accepted;
+      log.lastBuildTick = this.tick;
+      if (!log.sites.includes(site.id)) log.sites.push(site.id);
+    }
 
     if (site.complete) {
-      this.huts += 1;
+      if (isDwelling(site.kind)) this.huts += 1;
+      if (log) {
+        log.completed += 1;
+        log.completedKinds.push(site.kind);
+      }
+      const name = STRUCTURE_NAMES[site.kind] ?? 'hut';
+      this.chronicle.first(`structure-${site.kind}`, {
+        tick: this.tick,
+        simTime: this.simTime,
+        importance: 3,
+        title: `The first ${name}`,
+        text: `${builder.name} laid the last timber on the first ${name}.`,
+        entityIds: [builder.id],
+        x: site.x,
+        y: site.y,
+      });
       this.emitEvent(
         'build',
-        `${builder.name} completed a hut at ${site.x.toFixed(0)}, ${site.y.toFixed(0)}.`,
+        `${builder.name} completed a ${name} at ${site.x.toFixed(0)}, ${site.y.toFixed(0)}.`,
         [builder.id],
       );
       this.addEffect('build', site.x, site.y, 3.4, 2.4);
     } else {
       this.emitEvent(
         'build',
-        `${builder.name} added timber to a hut (${Math.round(site.progress * 100)}%).`,
+        `${builder.name} added timber to a ${STRUCTURE_NAMES[site.kind] ?? 'hut'} (${Math.round(site.progress * 100)}%).`,
         [builder.id],
       );
       this.addEffect('build', site.x, site.y, 2.2, 1.2);
@@ -705,31 +1004,124 @@ export class World implements SimWorld {
     return accepted;
   }
 
-  foundStructure(x: number, y: number, builder: Human): Structure | null {
+  foundStructure(x: number, y: number, builder: Human, frontier = false): Structure | null {
     if (this.structures.length >= MAX_STRUCTURES) return null;
     // Keep sites a sensible distance apart so the village reads as a village and
-    // not as one pile of huts.
-    const nearby = this.within(this.structureGrid, this.structures, x, y, 5.5, this.structureScratch);
+    // not as one pile of huts. A palisade is a wall, so its segments may close
+    // up — but that is decided after the kind is, below.
+    const nearby = this.within(this.structureGrid, this.structures, x, y, 3.2, this.structureScratch);
     if (nearby > 0) return null;
     if (this.unfinishedWithin(this.structureGrid, this.structures, x, y)) return null;
 
     const [sx, sy] = nearestWalkable(this.terrain, x, y);
-    const site = new Structure(this.nextEntityId++, sx, sy);
+    const kind = this.siteKind(sx, sy);
+    if (kind !== StructureKind.Palisade) {
+      if (this.within(this.structureGrid, this.structures, sx, sy, 5.5, this.structureScratch) > 0) return null;
+    }
+    const site = new Structure(this.nextEntityId++, sx, sy, kind);
     this.structures.push(site);
     this.structureGrid.insert(this.structures.length - 1, sx, sy);
-    this.emitEvent('build', `${builder.name} staked out a new hut site.`, [builder.id]);
+    if (frontier) {
+      const log = this.logOf(builder);
+      if (log) log.frontierFoundings += 1;
+    }
+    this.emitEvent('build', `${builder.name} staked out a new ${STRUCTURE_NAMES[kind]} site.`, [builder.id]);
     this.addEffect('build', sx, sy, 2.6, 1.6);
     return site;
   }
 
-  consumePlant(plantIndex: number, amount: number): number {
+  /** What a site staked here becomes. See game/buildings.ts. */
+  private siteKind(x: number, y: number): number {
+    const centre = this.settlementCentre ?? { x, y };
+    const reach = 26 + Math.min(24, this.structures.length * 1.8);
+    const anyKindNear = (kind: number, radius: number): boolean => {
+      for (const site of this.structures) {
+        if (site.kind === kind && Math.hypot(site.x - x, site.y - y) <= radius) return true;
+      }
+      return false;
+    };
+    let rockNear = false;
+    for (let dy = -4; dy <= 4 && !rockNear; dy += 2) {
+      for (let dx = -4; dx <= 4; dx += 2) {
+        if (tileAt(this.terrain, x + dx, y + dy) === Tile.Rock) {
+          rockNear = true;
+          break;
+        }
+      }
+    }
+    let shrines = 0;
+    let workshops = 0;
+    for (const site of this.structures) {
+      if (site.kind === StructureKind.Shrine) shrines++;
+      if (site.kind === StructureKind.Workshop) workshops++;
+    }
+    return structureKindFor({
+      era: this.eraState.era,
+      fieldNear: this.within(this.fieldGrid, this.fields, x, y, 6, this.fieldScratch) > 0,
+      granaryNear: anyKindNear(StructureKind.Granary, 14),
+      waterDistance: this.waterDistanceAt(x, y),
+      wellNear: anyKindNear(StructureKind.Well, 16),
+      workshops,
+      huts: this.huts,
+      population: this.humans.length,
+      rockNear,
+      edge: Math.hypot(x - centre.x, y - centre.y) / reach,
+      shrines,
+      deaths: this.deaths,
+    });
+  }
+
+  /** Atlas bookkeeping for one bite. */
+  private recordMeal(eater: Human, plant: Plant, taken: number): void {
+    const log = this.logOf(eater);
+    if (!log) return;
+    log.meals += 1;
+    if (this.climate.light < 0.28) log.nightMeals += 1;
+    if (plant.species !== PlantSpecies.FoodPile) {
+      log.foodWild += taken;
+      return;
+    }
+    switch (plant.origin) {
+      case FoodOrigin.Crop:
+        log.foodCrop += taken;
+        break;
+      case FoodOrigin.Granary:
+        log.foodGranary += taken;
+        break;
+      case FoodOrigin.Gift:
+        log.foodGift += taken;
+        break;
+      default:
+        log.foodCarcass += taken;
+        break;
+    }
+    if ((plant.origin === FoodOrigin.Crop || plant.origin === FoodOrigin.Granary) && eater.wildInSight >= 5) {
+      log.cropByChoice += taken;
+    }
+    if (
+      plant.origin === FoodOrigin.Crop &&
+      plant.harvesterId &&
+      eater.ageBio < AGE_CHILD_END &&
+      (eater.motherId === plant.harvesterId || eater.fatherId === plant.harvesterId)
+    ) {
+      const provider = this.logs.get(plant.harvesterId);
+      if (provider) provider.fedChildren += 1;
+    }
+  }
+
+  consumePlant(plantIndex: number, amount: number, eater?: Human): number {
     const plant = this.plants[plantIndex];
     if (!plant || !plant.alive) return 0;
     const taken = Math.min(plant.food, amount);
     plant.food -= taken;
-    if (plant.species !== PlantSpecies.FoodPile) this.foodEaten.wild += taken;
-    else if (plant.crop) this.foodEaten.crop += taken;
+    const wild = plant.species !== PlantSpecies.FoodPile;
+    if (wild) {
+      this.foodEaten.wild += taken;
+      // Grazing exhausts the ground: the carrying capacity. See game/soil.ts.
+      this.soil.graze(plant.x, plant.y, taken);
+    } else if (plant.crop || plant.origin === FoodOrigin.Granary) this.foodEaten.crop += taken;
     else this.foodEaten.pile += taken;
+    if (eater && taken > 0) this.recordMeal(eater, plant, taken);
     if (plant.food <= 0.0001 && plant.species === PlantSpecies.FoodPile) {
       plant.food = 0;
       plant.alive = false;
@@ -739,8 +1131,13 @@ export class World implements SimWorld {
 
   damageHuman(target: Human, amount: number, reason: string, attackerId: number | null): void {
     if (!target.alive) return;
+    amount *= this.rules.damageTaken;
     target.health -= amount;
     target.pain = Math.min(100, target.pain + amount * 3.2);
+    if (reason.startsWith('predation')) {
+      const log = this.logOf(target);
+      if (log) log.predatorHitTick = this.tick;
+    }
     if (target.health <= 0) {
       target.health = 0;
       this.killHuman(target, reason, attackerId);
@@ -800,9 +1197,11 @@ export class World implements SimWorld {
       if (plant.alive) this.plantGrid.insert(i, plant.x, plant.y);
     }
     this.structureGrid.clear();
+    for (const list of this.finished) list.length = 0;
     for (let i = 0; i < this.structures.length; i++) {
       const site = this.structures[i];
       this.structureGrid.insert(i, site.x, site.y);
+      if (site.complete) this.finished[site.kind]?.push(site);
     }
 
     this.fieldGrid.clear();
@@ -820,6 +1219,7 @@ export class World implements SimWorld {
     this.tick += 1;
     this.simTime += DT;
     updateClimate(this.climate, this.simTime);
+    this.updateSky();
     this.rebuildGrids();
 
     // --- humans -----------------------------------------------------------
@@ -831,6 +1231,8 @@ export class World implements SimWorld {
       human.think(this);
       human.act(this, DT);
       human.updatePhysiology(this, DT);
+      this.paths.tread(human.x, human.y);
+      if ((this.tick + human.id) % SAMPLE_INTERVAL === 0) this.sampleBehaviour(human);
       if (human.health <= 0) {
         this.killHuman(human, human.deathReason ?? 'unknown causes', null);
       }
@@ -864,6 +1266,9 @@ export class World implements SimWorld {
     // --- cultivation ------------------------------------------------------
     this.updateCultivation();
 
+    // --- the game layer: land, stores, fate, eras, favour, atlas ----------
+    this.updateGame();
+
     // --- reproduction -----------------------------------------------------
     this.resolveMating(DT);
     this.resolvePregnancies(DT);
@@ -881,13 +1286,28 @@ export class World implements SimWorld {
     this.checkMilestones();
   }
 
+  private readonly growth: GrowthConditions = {
+    regen: 1,
+    spread: 1,
+    timber: 1,
+    spoilage: 1,
+    seedFloor: SOIL_SEED_FLOOR,
+    soilAt: (x, y) => this.soil.regenFactor(x, y),
+    fertilityAt: (x, y) => this.soil.at(x, y),
+  };
+
   private updatePlants(): void {
     const spreadAllowed = this.plants.length < MAX_PLANTS;
     const spawned: Plant[] = [];
+    const growth = this.growth;
+    growth.regen = this.season.plantRegen * this.rules.plantRegen * this.crisis.plantRegen;
+    growth.spread = this.season.plantSpread;
+    growth.timber = this.rules.timberRegen;
+    growth.spoilage = this.season.spoilage;
     for (let i = 0; i < this.plants.length; i++) {
       const plant = this.plants[i];
       if (!plant.alive) continue;
-      const child = plant.update(this.terrain, DT, this.rng, spreadAllowed);
+      const child = plant.update(this.terrain, DT, this.rng, spreadAllowed, growth);
       if (child) {
         child.id = this.nextEntityId++;
         spawned.push(child);
@@ -1002,16 +1422,22 @@ export class World implements SimWorld {
     this.totalMatings += 1;
     const mother = a.isFemale() ? a : b;
     const father = a.isFemale() ? b : a;
+    this.logOf(mother)?.partners.push(father.id);
+    this.logOf(father)?.partners.push(mother.id);
     if (mother.pregnancy) return;
+    // The one-child-a-year law: a mother too recently delivered does not conceive.
+    const spacing = this.rules.birthSpacingYears * TICKS_PER_YEAR;
+    if (spacing > 0 && this.tick - mother.lastBirthTick < spacing) return;
 
     // Conception is probabilistic and depends on both parents' fertility.
     const chance = 0.9 * Math.min(1, mother.fertility01) * Math.min(1, father.fertility01) * mother.genome.fertility;
     if (this.rng.next() > chance) return;
 
+    const mutation = this.rules.mutationRate;
     const { genome, report } = reproduce(mother.genome, father.genome, this.rng, {
-      rate: 0.16,
+      rate: Math.min(1, 0.16 * mutation),
       strength: 0.05,
-      structuralChance: 0.02,
+      structuralChance: Math.min(1, 0.02 * mutation),
     });
     mother.conceive(father, this, genome, report);
     this.emitEvent('conception', `${mother.name} conceived a child with ${father.name}.`, [
@@ -1033,12 +1459,22 @@ export class World implements SimWorld {
   private giveBirth(mother: Human): void {
     const pregnancy = mother.pregnancy;
     if (!pregnancy) return;
+    const twins = this.rules.twinChance > 0 && this.rng.next() < this.rules.twinChance;
+    this.deliver(mother, pregnancy);
+    if (twins && this.humans.length < MAX_POPULATION) {
+      this.deliver(mother, pregnancy);
+      this.emitEvent('birth', `${mother.name} had twins.`, [mother.id]);
+    }
+    this.afterBirth(mother);
+  }
+
+  private deliver(mother: Human, pregnancy: NonNullable<Human['pregnancy']>): void {
     const father = this.humanById.get(pregnancy.fatherId) ?? null;
     const genome = sanitizeGenome(cloneGenome(pregnancy.embryoGenome));
 
     const sex = this.rng.next() < 0.5 ? Sex.Female : Sex.Male;
     const name = this.nameRegistry.next(this.rng);
-    const baby = new Human(this.nextEntityId++, name, sex, genome, this.rng.fork());
+    const baby = new Human(this.nextEntityId++, name, sex, genome, this.rng.fork(), this.brainOptions);
 
     const angle = this.rng.next() * Math.PI * 2;
     const [bx, by] = nearestWalkable(
@@ -1079,8 +1515,24 @@ export class World implements SimWorld {
       fatherId: father ? father.id : null,
     });
 
+    // Lamarck (a law, off by default): a share of what the parents' reflexes
+    // learned is written into the child's. Only the innate synapses line up
+    // between two brains, so only they can be inherited this way.
+    if (this.rules.lamarck > 0) {
+      const count = baby.brain.synCount - baby.brain.innateStart;
+      for (let k = 0; k < count; k++) {
+        const fromMother = mother.brain.innateDrift(k);
+        const fromFather = father ? father.brain.innateDrift(k) : fromMother;
+        const s = baby.brain.innateStart + k;
+        baby.brain.w[s] += this.rules.lamarck * 0.5 * (fromMother + fromFather);
+      }
+    }
+
     this.humans.push(baby);
     this.humanById.set(baby.id, baby);
+    this.logs.set(baby.id, createLog(baby.id));
+    baby.homeX = baby.x;
+    baby.homeY = baby.y;
 
     mother.childrenIds.push(baby.id);
     mother.offspringCount += 1;
@@ -1089,6 +1541,44 @@ export class World implements SimWorld {
       father.offspringCount += 1;
     }
 
+    this.births += 1;
+    grant(this.favour, FAVOUR_REWARDS.birth, this.eraState.era);
+    if (baby.generation > this.maxGeneration) {
+      this.maxGeneration = baby.generation;
+      grant(this.favour, FAVOUR_REWARDS.generation, this.eraState.era);
+      this.emitEvent('generation', `Generation ${baby.generation} appeared with ${baby.name}.`, [baby.id]);
+      this.chronicle.add({
+        tick: this.tick,
+        simTime: this.simTime,
+        kind: 'milestone',
+        importance: baby.generation <= 3 || baby.generation % 5 === 0 ? 3 : 2,
+        title: `The ${ordinal(baby.generation)} generation`,
+        text: `${baby.name} was born to ${mother.name}${father ? ` and ${father.name}` : ''}: the first of the ${ordinal(baby.generation)} generation.`,
+        entityIds: [baby.id, mother.id],
+        x: baby.x,
+        y: baby.y,
+      });
+    }
+    this.chronicle.first('birth', {
+      tick: this.tick,
+      simTime: this.simTime,
+      importance: 3,
+      title: 'The first child',
+      text: `${baby.name} was born to ${mother.name}${father ? ` and ${father.name}` : ''} — the first child born in this world.`,
+      entityIds: [baby.id, mother.id],
+      x: baby.x,
+      y: baby.y,
+    });
+    this.emitEvent('birth', `${baby.name} was born to ${mother.name}.`, [baby.id, mother.id]);
+    this.addEffect('birth', baby.x, baby.y, 2.4, 1.2);
+
+    // Newborn memory: both parents recognise their child immediately.
+    mother.memory.shock(baby.id, this.tick, 0.5, 0.35, 0.3);
+    if (father) father.memory.shock(baby.id, this.tick, 0.5, 0.3, 0.25);
+  }
+
+  private afterBirth(mother: Human): void {
+    mother.lastBirthTick = this.tick;
     mother.pregnancy = null;
     // Recovery after birth.
     //
@@ -1101,18 +1591,6 @@ export class World implements SimWorld {
     mother.health = Math.max(35, mother.health - 6);
     mother.energy = Math.max(0, mother.energy - 22);
     mother.fatigue = Math.min(100, mother.fatigue + 35);
-
-    this.births += 1;
-    if (baby.generation > this.maxGeneration) {
-      this.maxGeneration = baby.generation;
-      this.emitEvent('generation', `Generation ${baby.generation} appeared with ${baby.name}.`, [baby.id]);
-    }
-    this.emitEvent('birth', `${baby.name} was born to ${mother.name}.`, [baby.id, mother.id]);
-    this.addEffect('birth', baby.x, baby.y, 2.4, 1.2);
-
-    // Newborn memory: both parents recognise their child immediately.
-    mother.memory.shock(baby.id, this.tick, 0.5, 0.35, 0.3);
-    if (father) father.memory.shock(baby.id, this.tick, 0.5, 0.3, 0.25);
   }
 
   /** Inheritance reports, kept out of the save payload's hot path but preserved. */
@@ -1156,8 +1634,61 @@ export class World implements SimWorld {
       const record = other.memory.get(target.id);
       if (record) {
         record.valence = Math.max(-1, record.valence - 0.35);
+        // A partner starts a vigil the atlas watches for.
+        if (record.matings > 0) {
+          const log = this.logOf(other);
+          if (log && !log.mourning) {
+            log.mourning = [target.x, target.y, this.tick];
+            log.mourningSamples = 0;
+          }
+        }
       }
     }
+    this.recordDeath(target);
+  }
+
+  /** The atlas's last look, the chronicle's obituary, and the observer's due. */
+  private recordDeath(target: Human): void {
+    const log = this.logs.get(target.id);
+    if (log) {
+      const earned = evaluate(log, this.subjectFor(target), true);
+      this.award(target, log, earned);
+    }
+    const epithet = log ? epithetFor(log.earned) : null;
+    if (target.deathReason === 'old age') grant(this.favour, FAVOUR_REWARDS.elderDeath, this.eraState.era);
+
+    // A life is notable when it was long, fruitful, named, or the first of its kind.
+    const notable =
+      epithet !== null ||
+      target.ageBio >= AGE_ADULT_END ||
+      target.childrenIds.length >= 3 ||
+      target.generation === 0;
+    if (notable) {
+      let circumstance: string | null = null;
+      if (log && log.rescues > 0 && target.deathReason?.startsWith('predation')) circumstance = 'having once saved a child from a predator';
+      else if (log && log.mourned > 0) circumstance = 'having mourned a partner';
+      const text = obituary({
+        name: target.name,
+        epithet,
+        generation: target.generation,
+        ageYears: target.ageBio,
+        children: target.childrenIds.length,
+        reason: target.deathReason?.startsWith('predation') ? 'predation' : (target.deathReason ?? 'unknown causes'),
+        circumstance,
+      });
+      this.chronicle.add({
+        tick: this.tick,
+        simTime: this.simTime,
+        kind: 'death',
+        importance: epithet || target.generation === 0 ? 2 : 1,
+        title: `${target.name}${epithet ? ` ${epithet}` : ''} (${Math.round(target.ageBio)})`,
+        text,
+        entityIds: [target.id],
+        x: target.x,
+        y: target.y,
+      });
+    }
+    this.logs.delete(target.id);
   }
 
   killPredator(target: Predator, reason: string): void {
@@ -1194,11 +1725,804 @@ export class World implements SimWorld {
       if (population >= milestone && !this.reachedMilestones.has(milestone)) {
         this.reachedMilestones.add(milestone);
         this.emitEvent('milestone', `Population reached ${milestone}.`, []);
+        this.chronicle.add({
+          tick: this.tick,
+          simTime: this.simTime,
+          kind: 'milestone',
+          importance: milestone >= 30 ? 2 : 1,
+          title: `${milestone} people`,
+          text: `The population reached ${milestone}.`,
+          entityIds: [],
+        });
       }
     }
   }
 
   private readonly reachedMilestones = new Set<number>();
+
+  // ---------------------------------------------------------------------
+  // The game layer
+  // ---------------------------------------------------------------------
+
+  /** Light after the charter's long night and an eclipse have had their say. */
+  private updateSky(): void {
+    const bias = this.rules.nightBias;
+    if (bias > 0) {
+      const sun = Math.sin((this.climate.dayPhase - 0.25) * Math.PI * 2);
+      this.climate.light = Math.max(0, Math.min(1, (sun + 0.35 - bias) / (1.35 - bias)));
+    }
+    if (this.crisis.light >= 0) this.climate.light = Math.min(this.climate.light, this.crisis.light);
+  }
+
+  private lastSeason = -1;
+
+  private updateGame(): void {
+    const tick = this.tick;
+
+    if (tick % 20 === 0) {
+      this.season = seasonFactors(this.simTime, this.seasonOptions());
+      const calendar = calendarAt(this.simTime);
+      if (calendar.season !== this.lastSeason) {
+        if (this.lastSeason >= 0) {
+          const name = SEASON_NAMES[calendar.season];
+          this.emitEvent('ecology', `${name[0].toUpperCase()}${name.slice(1)} has come (year ${calendar.year}).`, []);
+        }
+        this.lastSeason = calendar.season;
+      }
+      this.paths.regrow(DT * 20);
+      this.serveGranaries();
+    }
+    this.crisis = crisisFactors(this.fate, tick);
+
+    if (tick % SOIL_UPDATE_INTERVAL === 0) {
+      this.soil.recover(DT * SOIL_UPDATE_INTERVAL, this.rules.soilRecovery * this.season.soilRecovery);
+    }
+
+    for (let i = this.rains.length - 1; i >= 0; i--) {
+      if (--this.rains[i].ticks <= 0) this.rains.splice(i, 1);
+    }
+
+    this.updateFateAndCrises();
+
+    // Favour trickles in on its own, and mostly comes from the world doing well.
+    grant(this.favour, FAVOUR_BASE_RATE * this.rules.favourRate * DT, this.eraState.era);
+
+    if (tick % ERA_CHECK_INTERVAL === 0) this.checkEra();
+    if (tick % 200 === 0) this.evaluateAtlas();
+    if (tick % 40 === 0) this.updateSpotlight();
+    if (tick % (TICKS_PER_DAY / 2) === 0) {
+      this.populationHistory.push(this.humans.length);
+      if (this.populationHistory.length > 400) {
+        // Halve the resolution rather than forget the beginning.
+        this.populationHistory = this.populationHistory.filter((_, i) => i % 2 === 0);
+      }
+    }
+  }
+
+  /** Population sampled every half day, for the campaign graph. */
+  populationHistory: number[] = [];
+
+  /** The game layer, as the client sees it. */
+  buildGameView(chronicleSince: number): GameView {
+    const calendar = calendarAt(this.simTime);
+    const inputs = this.eraInputs();
+    const nextEra = requirementsFor(this.eraState.era + 1, inputs);
+    const hold =
+      this.eraState.qualifyingSince >= 0
+        ? Math.min(1, (this.tick - this.eraState.qualifyingSince) / (2 * TICKS_PER_DAY))
+        : 0;
+    const crisis = this.fate.current;
+    const prices: Record<string, number> = {};
+    const cooldowns: Record<string, number> = {};
+    const inCrisis = crisis?.phase === 'active';
+    for (const kind of ['rain', 'spawnFood', 'moveHuman', 'rewardPulse', 'painPulse', 'bless', 'editGenome', 'lightning', 'spawnPredator', 'spawnHuman', 'temperature', 'timeOfDay', 'kill']) {
+      prices[kind] = priceOf(this.favour, kind, inCrisis);
+      const ready = this.favour.readyAt[kind] ?? 0;
+      if (ready > this.tick) cooldowns[kind] = (ready - this.tick) / SIM_HZ;
+    }
+    const epithets: Record<number, string> = {};
+    const fevered: number[] = [];
+    for (const human of this.humans) {
+      if (!human.alive) continue;
+      const epithet = this.epithetOf(human.id);
+      if (epithet) epithets[human.id] = epithet;
+      if (human.fever > 0) fevered.push(human.id);
+    }
+    const fires: number[] = [];
+    if (this.burning.size > 0) {
+      for (const plant of this.plants) {
+        if (this.burning.has(plant.id)) fires.push(plant.x, plant.y);
+      }
+    }
+    for (const site of this.structures) {
+      if (this.burningStructures.has(site.id)) fires.push(site.x, site.y);
+    }
+    const discoveries = this.pendingDiscoveries.map((id) => {
+      const found = this.discovered.get(id);
+      return { id, humanId: found?.humanId ?? 0, name: found?.name ?? '' };
+    });
+    this.pendingDiscoveries = [];
+    const centre = this.settlementCentre;
+    return {
+      mode: this.options.mode ?? 'sandbox',
+      biome: this.options.biome ?? 'valley',
+      charter: this.options.charter ?? [],
+      year: calendar.year,
+      season: calendar.season,
+      seasonPhase: calendar.seasonPhase,
+      day: calendar.day,
+      era: this.eraState.era,
+      nextEra,
+      eraHold: hold,
+      favour: {
+        enabled: this.favour.enabled,
+        value: this.favour.value,
+        cap: favourCap(this.eraState.era),
+        prices,
+        cooldowns,
+        interventions: this.favour.interventions,
+        spent: this.favour.spent,
+      },
+      interventionsAllowed: this.rules.interventions,
+      spawnAllowed: this.rules.spawnAllowed,
+      crisis: crisis
+        ? {
+            kind: crisis.kind,
+            name: CRISES[crisis.kind].name,
+            phase: crisis.phase,
+            text: crisis.phase === 'warning' ? CRISES[crisis.kind].warning : CRISES[crisis.kind].onset,
+            advice: CRISES[crisis.kind].advice,
+            seconds: ((crisis.phase === 'warning' ? crisis.startsAt : crisis.endsAt) - this.tick) / SIM_HZ,
+            severity: crisis.severity,
+          }
+        : null,
+      crisesSurvived: inputs.crisesSurvived,
+      crisisHistory: this.fate.history.map((r) => ({
+        kind: r.kind,
+        survived: r.survived,
+        year: Math.floor(r.startedAt / TICKS_PER_YEAR) + 1,
+      })),
+      storedFood: this.storedFood,
+      granaries: inputs.granaries,
+      wells: inputs.wells,
+      trails: this.tick % 200 === 0 || this.cachedTrails < 0 ? (this.cachedTrails = this.paths.trailTiles()) : this.cachedTrails,
+      landHealth: this.cachedLand < 0 || this.tick % 200 === 0 ? (this.cachedLand = this.landHealth()) : this.cachedLand,
+      spotlight: this.spotlight,
+      chronicle: this.chronicle.since(chronicleSince),
+      chronicleCount: this.chronicle.entries.length,
+      discoveries,
+      discovered: [...this.discovered.keys()],
+      epithets,
+      fires,
+      rains: this.rains.map((r) => ({ x: r.x, y: r.y, radius: r.radius })),
+      fevered,
+      populationHistory: this.populationHistory,
+      extinct: this.humans.length === 0,
+      oldest: this.humans.reduce((max, h) => (h.alive && h.ageBio > max ? h.ageBio : max), 0),
+    };
+  }
+
+  private cachedTrails = -1;
+  private cachedLand = -1;
+
+  /**
+   * How much the land the village lives on has left to give: mean fertility
+   * under the wild plants within reach of the settlement. Bare ground nobody
+   * grazes does not count, or the number would never move.
+   */
+  landHealth(): number {
+    const centre = this.settlementCentre;
+    if (!centre) return 1;
+    const count = this.within(this.plantGrid, this.plants, centre.x, centre.y, 26, this.scratchB);
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < count; i++) {
+      const plant = this.plants[this.scratchB[i]];
+      if (!plant || plant.species === PlantSpecies.FoodPile) continue;
+      sum += this.soil.at(plant.x, plant.y);
+      n++;
+    }
+    return n > 0 ? sum / n : 1;
+  }
+
+  /** A granary puts some of its store out as a pile beside it, and loses some to rot. */
+  private serveGranaries(): void {
+    let total = 0;
+    const spoil = GRANARY_SPOILAGE_PER_DAY * this.season.spoilage * ((DT * 20) / DAY_SECONDS);
+    for (const granary of this.finished[StructureKind.Granary]) {
+      granary.store *= 1 - spoil;
+      if (granary.store > 0.05) {
+        // Find this granary's stall: a granary pile within reach.
+        let stall: Plant | null = null;
+        const count = this.within(this.plantGrid, this.plants, granary.x, granary.y, 2.2, this.scratchB);
+        for (let i = 0; i < count; i++) {
+          const plant = this.plants[this.scratchB[i]];
+          if (plant && plant.alive && plant.origin === FoodOrigin.Granary) {
+            stall = plant;
+            break;
+          }
+        }
+        if (!stall) {
+          stall = new Plant(this.nextEntityId++, PlantSpecies.FoodPile, granary.x + 1.4, granary.y + 0.6, this.rng, 1);
+          stall.food = 0;
+          stall.origin = FoodOrigin.Granary;
+          this.plants.push(stall);
+          this.plantGrid.insert(this.plants.length - 1, stall.x, stall.y);
+        }
+        const want = Math.max(0, GRANARY_STALL - stall.food);
+        const given = Math.min(want, granary.store);
+        stall.food += given;
+        stall.ageBio = 0;
+        granary.store -= given;
+      }
+      total += granary.store;
+    }
+    this.storedFood = total;
+  }
+
+  // --- fate ------------------------------------------------------------
+
+  private updateFateAndCrises(): void {
+    const event = updateFate(
+      this.fate,
+      this.tick,
+      this.simTime,
+      this.eraState.era,
+      this.humans.length,
+      this.rules.crisisFrequency,
+      this.rules.crisisWeights,
+    );
+    if (event) {
+      const def = CRISES[event.crisis.kind];
+      if (event.type === 'warning') {
+        this.emitEvent('ecology', `Omen: ${def.warning}`, []);
+        this.chronicle.add({
+          tick: this.tick,
+          simTime: this.simTime,
+          kind: 'crisis',
+          importance: 2,
+          title: `Omen of ${def.name.toLowerCase()}`,
+          text: def.warning,
+          entityIds: [],
+        });
+      } else if (event.type === 'start') {
+        this.emitEvent('ecology', def.onset, []);
+        this.startCrisis(event.crisis.kind, event.crisis.severity);
+        this.chronicle.add({
+          tick: this.tick,
+          simTime: this.simTime,
+          kind: 'crisis',
+          importance: 3,
+          title: def.name,
+          text: def.onset,
+          entityIds: [],
+          x: this.settlementCentre?.x,
+          y: this.settlementCentre?.y,
+        });
+      } else if (event.record) {
+        this.endCrisis(event.record.kind);
+        const record = event.record;
+        const change = record.populationAfter - record.populationBefore;
+        const verdict = record.survived
+          ? `The settlement came through: ${record.populationAfter} alive (${change >= 0 ? '+' : ''}${change}).`
+          : 'Nobody was left to see it end.';
+        this.emitEvent('ecology', `${def.name} is over. ${verdict}`, []);
+        this.chronicle.add({
+          tick: this.tick,
+          simTime: this.simTime,
+          kind: 'crisis',
+          importance: 3,
+          title: `${def.name} ends`,
+          text: verdict,
+          entityIds: [],
+        });
+        if (record.survived) {
+          grant(
+            this.favour,
+            FAVOUR_REWARDS.crisisBase + FAVOUR_REWARDS.crisisPerSeverity * record.severity,
+            this.eraState.era,
+          );
+          for (const human of this.humans) {
+            if (!human.alive || human.ageBio < AGE_CHILD_END) continue;
+            const log = this.logOf(human);
+            if (log && !log.crises.includes(record.kind)) log.crises.push(record.kind);
+          }
+        }
+      }
+    }
+
+    const current = this.fate.current;
+    if (current?.phase === 'active') {
+      if (current.kind === 'fire' && this.tick % 10 === 0) this.spreadFire();
+      if (current.kind === 'blight' && this.tick % 600 === 0) this.spreadBlight();
+    }
+    if (this.tick % 10 === 0) this.spreadFever();
+    if (this.burning.size > 0 || this.burningStructures.size > 0) this.burn();
+  }
+
+  private startCrisis(kind: string, severity: number): void {
+    const centre = this.settlementCentre ?? { x: this.terrain.width / 2, y: this.terrain.height / 2 };
+    switch (kind) {
+      case 'predatorMigration': {
+        const count = Math.round((3 + 3 * Math.min(1, severity - 1 + 0.34)) * this.rules.predatorMigration);
+        // They come ashore at the coast nearest the village.
+        const angle = Math.atan2(centre.y - this.terrain.height / 2, centre.x - this.terrain.width / 2);
+        for (let i = 0; i < count; i++) {
+          const a = angle + (this.rng.next() - 0.5) * 0.9;
+          const r = 30 + this.rng.next() * 10;
+          this.releasePredator(centre.x + Math.cos(a) * r, centre.y + Math.sin(a) * r);
+        }
+        break;
+      }
+      case 'blight': {
+        let driest: Field | null = null;
+        for (const field of this.fields) {
+          if (field.stage === FieldStage.Fallow) continue;
+          if (!driest || field.moisture < driest.moisture) driest = field;
+        }
+        if (driest) driest.blighted = true;
+        break;
+      }
+      case 'flood': {
+        for (const field of this.fields) {
+          if (this.waterDistanceAt(field.x, field.y) > 2) continue;
+          field.stage = FieldStage.Fallow;
+          field.growth = 0;
+          field.moisture = 1;
+        }
+        for (const canal of this.canals) {
+          if (!canal.complete && this.waterDistanceAt(canal.x, canal.y) <= 2) canal.progress = 0;
+        }
+        break;
+      }
+      case 'fever': {
+        const adults = this.humans.filter((h) => h.alive && h.ageBio >= AGE_CHILD_END && !h.immune);
+        const count = Math.min(adults.length, 1 + Math.round(severity));
+        for (let i = 0; i < count; i++) {
+          const index = Math.floor(this.rng.next() * adults.length);
+          const patient = adults.splice(index, 1)[0];
+          if (patient) patient.fever = TICKS_PER_DAY;
+        }
+        break;
+      }
+      case 'fire': {
+        let best = -1;
+        let bestScore = -Infinity;
+        for (let i = 0; i < this.plants.length; i++) {
+          const plant = this.plants[i];
+          if (!plant.alive || plant.species !== PlantSpecies.Tree) continue;
+          const distance = Math.hypot(plant.x - centre.x, plant.y - centre.y);
+          if (distance > 30 || this.fireproof(plant.x, plant.y)) continue;
+          const score = this.rng.next() - distance / 30;
+          if (score > bestScore) {
+            bestScore = score;
+            best = i;
+          }
+        }
+        if (best >= 0) this.burning.set(this.plants[best].id, 120);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  private endCrisis(kind: string): void {
+    if (kind === 'fire') {
+      this.burning.clear();
+      this.burningStructures.clear();
+    }
+    if (kind === 'blight') for (const field of this.fields) field.blighted = false;
+  }
+
+  /** Ground fire cannot cross: open water, a flowing canal, or rain. */
+  private fireproof(x: number, y: number): boolean {
+    if (this.waterDistanceAt(x, y) <= 2) return true;
+    for (const rain of this.rains) if (Math.hypot(rain.x - x, rain.y - y) <= rain.radius) return true;
+    const count = this.within(this.canalGrid, this.canals, x, y, 2.5, this.canalScratch);
+    for (let i = 0; i < count; i++) if (this.canals[this.canalScratch[i]]?.flowing) return true;
+    return false;
+  }
+
+  private spreadFire(): void {
+    const plantIndex = new Map<number, number>();
+    for (let i = 0; i < this.plants.length; i++) plantIndex.set(this.plants[i].id, i);
+    const ignite: number[] = [];
+    for (const [id] of this.burning) {
+      const index = plantIndex.get(id);
+      if (index === undefined) continue;
+      const plant = this.plants[index];
+      const count = this.within(this.plantGrid, this.plants, plant.x, plant.y, 2.6, this.scratchB);
+      for (let i = 0; i < count; i++) {
+        const other = this.plants[this.scratchB[i]];
+        if (!other?.alive || other.species === PlantSpecies.FoodPile || this.burning.has(other.id)) continue;
+        if (this.fireproof(other.x, other.y)) continue;
+        if (this.rng.next() < (other.species === PlantSpecies.Tree ? 0.18 : 0.08)) ignite.push(other.id);
+      }
+      const sites = this.within(this.structureGrid, this.structures, plant.x, plant.y, 2.8, this.structureScratch);
+      for (let i = 0; i < sites; i++) {
+        const site = this.structures[this.structureScratch[i]];
+        if (site && site.wood > 0 && !this.burningStructures.has(site.id) && site.kind !== StructureKind.Well) {
+          this.burningStructures.set(site.id, 200);
+        }
+      }
+    }
+    for (const id of ignite) this.burning.set(id, 120);
+    // Rain puts it out.
+    for (const [id] of this.burning) {
+      const index = plantIndex.get(id);
+      if (index === undefined) {
+        this.burning.delete(id);
+        continue;
+      }
+      const plant = this.plants[index];
+      for (const rain of this.rains) {
+        if (Math.hypot(rain.x - plant.x, rain.y - plant.y) <= rain.radius) this.burning.delete(id);
+      }
+    }
+  }
+
+  private burn(): void {
+    if (this.burning.size > 0) {
+      const byId = new Map<number, Plant>();
+      for (const plant of this.plants) if (this.burning.has(plant.id)) byId.set(plant.id, plant);
+      for (const [id, ticks] of this.burning) {
+        const plant = byId.get(id);
+        if (!plant || !plant.alive) {
+          this.burning.delete(id);
+          continue;
+        }
+        plant.food = Math.max(0, plant.food - 0.02);
+        plant.timber = Math.max(0, plant.timber - 0.03);
+        if (ticks <= 1) {
+          plant.alive = false;
+          this.burning.delete(id);
+          // Ash feeds the ground.
+          this.soil.enrich(plant.x, plant.y, 1.5, 0.3);
+        } else this.burning.set(id, ticks - 1);
+        if (this.tick % 10 === 0) {
+          const count = this.within(this.humanGrid, this.humans, plant.x, plant.y, 1.2, this.scratchA);
+          for (let i = 0; i < count; i++) {
+            const human = this.humans[this.scratchA[i]];
+            if (human?.alive) this.damageHuman(human, 2.5, 'fire', null);
+          }
+        }
+      }
+    }
+    for (const [id, ticks] of this.burningStructures) {
+      const site = this.structures.find((s) => s.id === id);
+      if (!site) {
+        this.burningStructures.delete(id);
+        continue;
+      }
+      const rained = this.rains.some((r) => Math.hypot(r.x - site.x, r.y - site.y) <= r.radius);
+      if (rained || ticks <= 1) {
+        this.burningStructures.delete(id);
+        continue;
+      }
+      site.wood = Math.max(0, site.wood - 0.08);
+      if (site.complete && site.wood < site.required * 0.5) {
+        site.complete = false;
+        if (isDwelling(site.kind)) this.huts = Math.max(0, this.huts - 1);
+        if (site.kind === StructureKind.Granary) site.store = 0;
+        this.emitEvent('ecology', `A ${STRUCTURE_NAMES[site.kind]} burned down.`, []);
+      }
+      this.burningStructures.set(id, ticks - 1);
+    }
+  }
+
+  private spreadBlight(): void {
+    const infected = this.fields.filter((f) => f.blighted);
+    for (const source of infected) {
+      for (const field of this.fields) {
+        if (field.blighted || field === source) continue;
+        if (Math.hypot(field.x - source.x, field.y - source.y) > 8) continue;
+        if (this.rng.next() < 0.6) field.blighted = true;
+      }
+    }
+  }
+
+  private spreadFever(): void {
+    let any = false;
+    for (const human of this.humans) if (human.alive && human.fever > 0) any = true;
+    if (!any) return;
+    for (const human of this.humans) {
+      if (!human.alive || human.fever <= 0) continue;
+      const count = this.within(this.humanGrid, this.humans, human.x, human.y, 1.6, this.scratchA);
+      for (let i = 0; i < count; i++) {
+        const other = this.humans[this.scratchA[i]];
+        if (!other || other === human || !other.alive || other.fever > 0 || other.immune) continue;
+        if (this.rng.next() < 0.05) other.fever = TICKS_PER_DAY;
+      }
+    }
+  }
+
+  /** A predator released by fate rather than by the observer. */
+  private releasePredator(x: number, y: number): void {
+    if (this.predators.length >= MAX_PREDATORS) return;
+    const [px, py] = nearestWalkable(this.terrain, x, y, 16);
+    const genome = randomGenome(this.rng, 1);
+    const predator = new Predator(this.nextEntityId++, '', genome, this.rng.fork());
+    predator.name = `Hunter ${predator.id}`;
+    predator.x = px;
+    predator.y = py;
+    predator.ageBio = 10;
+    predator.hunger = 50;
+    this.predators.push(predator);
+    this.predatorById.set(predator.id, predator);
+  }
+
+  // --- eras --------------------------------------------------------------
+
+  eraInputs(): EraInputs {
+    let elders = 0;
+    for (const human of this.humans) if (human.alive && human.ageBio >= AGE_ADULT_END) elders++;
+    let flowing = 0;
+    for (const canal of this.canals) if (canal.flowing) flowing++;
+    let sown = 0;
+    for (const field of this.fields) if (field.lastWorkTick > 0 || field.stage !== FieldStage.Fallow) sown++;
+    const population = this.humans.length;
+    return {
+      population,
+      generation: this.maxGeneration,
+      huts: this.huts,
+      fieldsSown: sown,
+      fields: this.fields.length,
+      flowingCanals: flowing,
+      granaries: this.finished[StructureKind.Granary].length,
+      storedFood: this.storedFood,
+      elderFraction: population > 0 ? elders / population : 0,
+      crisesSurvived: this.fate.history.filter((r) => r.survived).length,
+      palisades: this.finished[StructureKind.Palisade].length,
+      wells: this.finished[StructureKind.Well].length,
+    };
+  }
+
+  private checkEra(): void {
+    const reached = updateEra(this.eraState, this.eraInputs(), this.tick);
+    if (reached === null) return;
+    const name = ERA_NAMES[reached];
+    grant(this.favour, FAVOUR_REWARDS.era, reached);
+    this.emitEvent('milestone', `Era ${ERA_NUMERALS[reached]}: the settlement is now a ${name.toLowerCase()}.`, []);
+    this.chronicle.add({
+      tick: this.tick,
+      simTime: this.simTime,
+      kind: 'era',
+      importance: 3,
+      title: `Era ${ERA_NUMERALS[reached]} — ${name}`,
+      text: `With ${this.humans.length} people over ${this.maxGeneration} generations, the settlement has become a ${name.toLowerCase()}.`,
+      entityIds: [],
+      x: this.settlementCentre?.x,
+      y: this.settlementCentre?.y,
+    });
+  }
+
+  // --- the atlas ---------------------------------------------------------
+
+  private sampleBehaviour(human: Human): void {
+    let log = this.logs.get(human.id);
+    if (!log) {
+      log = createLog(human.id);
+      this.logs.set(human.id, log);
+    }
+    log.samples += 1;
+    if (this.waterDistanceAt(human.x, human.y) <= 6) log.nearWater += 1;
+    if (Math.hypot(human.x - human.homeX, human.y - human.homeY) <= 10) log.nearHome += 1;
+    if (!(human.nearestHumanDistance <= 12)) log.alone += 1;
+    if (this.paths.isTrail(human.x, human.y)) log.onTrail += 1;
+    log.motor[human.actionIndex] = (log.motor[human.actionIndex] ?? 0) + 1;
+    log.valenceSum += human.lastValence;
+    const region = regionIndex(human.x, human.y, this.terrain.width);
+    log.regions[region] = this.tick;
+    for (let i = 0; i < log.regions.length; i++) if (log.regions[i] === undefined) log.regions[i] = -1;
+
+    if (this.climate.light < 0.28 && human.ageBio >= AGE_CHILD_END) {
+      log.nightSamples += 1;
+      const home = this.finishedDwellingNear(human.x, human.y, 6);
+      if (human.sleeping) {
+        log.nightAsleep += 1;
+        if (home && Math.hypot(home.x - human.x, home.y - human.y) <= 4) log.nightAsleepNearHome += 1;
+      } else if (home) {
+        let sleepers = 0;
+        const count = this.within(this.humanGrid, this.humans, human.x, human.y, 8, this.scratchA);
+        for (let i = 0; i < count; i++) if (this.humans[this.scratchA[i]]?.sleeping) sleepers++;
+        if (sleepers >= 3) log.nightWatch += 1;
+      }
+    }
+
+    // A predator bite survived for a full day.
+    if (log.predatorHitTick >= 0 && this.tick - log.predatorHitTick >= TICKS_PER_DAY) {
+      log.survivedPredator += 1;
+      log.predatorHitTick = -1;
+    }
+
+    // Fleeing from a predator with a child close by.
+    const threat = Math.max(
+      human.sensors[S_THREAT_FRONT],
+      human.sensors[S_THREAT_FRONT + 1],
+      human.sensors[S_THREAT_FRONT + 2],
+      human.sensors[S_THREAT_FRONT + 3],
+    );
+    if (threat > 0.3 && human.ageBio >= AGE_CHILD_END && human.speed < -0.5 && log.rescuePending.length < 4) {
+      const count = this.within(this.humanGrid, this.humans, human.x, human.y, 4, this.scratchA);
+      for (let i = 0; i < count; i++) {
+        const child = this.humans[this.scratchA[i]];
+        if (child && child !== human && child.alive && child.ageBio < AGE_CHILD_END) {
+          if (!log.rescuePending.some(([id]) => id === child.id)) log.rescuePending.push([child.id, this.tick]);
+          break;
+        }
+      }
+    }
+    for (let i = log.rescuePending.length - 1; i >= 0; i--) {
+      const [childId, since] = log.rescuePending[i];
+      if (this.tick - since < TICKS_PER_DAY) continue;
+      const child = this.humanById.get(childId);
+      if (child?.alive) log.rescues += 1;
+      log.rescuePending.splice(i, 1);
+    }
+
+    // Keeping vigil where a partner died.
+    if (log.mourning) {
+      const [mx, my, since] = log.mourning;
+      if (Math.hypot(human.x - mx, human.y - my) <= 8) log.mourningSamples += 1;
+      if (this.tick - since >= TICKS_PER_DAY) {
+        if (log.mourningSamples >= (TICKS_PER_DAY / SAMPLE_INTERVAL) * 0.5) log.mourned += 1;
+        log.mourning = null;
+        log.mourningSamples = 0;
+      }
+    }
+  }
+
+  private finishedDwellingNear(x: number, y: number, radius: number): Structure | null {
+    return (
+      this.finishedNear(StructureKind.Hut, x, y, radius) ?? this.finishedNear(StructureKind.StoneHouse, x, y, radius)
+    );
+  }
+
+  private subjectFor(human: Human): AtlasSubject {
+    let grandchildren = 0;
+    let descendants = 0;
+    const seen = new Set<number>();
+    const walk = (id: number, depth: number): void => {
+      const person = this.humanById.get(id);
+      if (!person) return;
+      for (const childId of person.childrenIds) {
+        if (seen.has(childId)) continue;
+        seen.add(childId);
+        descendants++;
+        const child = this.humanById.get(childId);
+        if (depth === 1 && child?.alive) grandchildren++;
+        if (depth < 6) walk(childId, depth + 1);
+      }
+    };
+    walk(human.id, 0);
+    let firstChildAge: number | null = null;
+    if (human.childrenIds.length > 0) {
+      const first = this.humanById.get(human.childrenIds[0]);
+      if (first) firstChildAge = human.ageBio - first.ageBio;
+    }
+    const brain = human.brain;
+    return {
+      ageYears: human.ageBio,
+      alive: human.alive,
+      deathReason: human.deathReason,
+      children: human.childrenIds.length,
+      descendants,
+      livingGrandchildren: grandchildren,
+      firstChildAge,
+      innateDrift: (k) => brain.innateDrift(k),
+      maxInnateDrift: brain.maxInnateDrift().drift,
+      strongReflexReversed: brain.strongReflexReversed(1.2, 0.2),
+      weightDrift: brain.weightDrift(),
+      tick: this.tick,
+    };
+  }
+
+  private evaluateAtlas(): void {
+    for (const human of this.humans) {
+      if (!human.alive) continue;
+      const log = this.logs.get(human.id);
+      if (!log) continue;
+      this.award(human, log, evaluate(log, this.subjectFor(human), false));
+    }
+  }
+
+  /** Record newly earned atlas entries: discoveries, epithets, favour. */
+  private award(human: Human, log: BehaviourLog, earned: string[]): void {
+    for (const id of earned) {
+      const entry = atlasEntry(id);
+      if (!entry) continue;
+      if (!this.discovered.has(id)) {
+        this.discovered.set(id, { tick: this.tick, humanId: human.id, name: human.name });
+        this.pendingDiscoveries.push(id);
+        grant(this.favour, FAVOUR_REWARDS.discovery, this.eraState.era);
+        this.emitEvent('milestone', `Atlas: ${entry.name} — first seen in ${human.name}.`, [human.id]);
+        this.chronicle.add({
+          tick: this.tick,
+          simTime: this.simTime,
+          kind: 'discovery',
+          importance: entry.rarity === 'common' ? 1 : entry.rarity === 'uncommon' ? 2 : 3,
+          title: `Atlas: ${entry.name}`,
+          text: `${entry.description} First seen in ${human.name}.`,
+          entityIds: [human.id],
+          x: human.x,
+          y: human.y,
+        });
+      }
+      if (entry.epithet && epithetFor(log.earned) === entry.epithet && human.alive) {
+        this.chronicle.add({
+          tick: this.tick,
+          simTime: this.simTime,
+          kind: 'epithet',
+          importance: entry.rarity === 'legendary' || entry.rarity === 'rare' ? 2 : 1,
+          title: `${human.name} ${entry.epithet}`,
+          text: `${human.name} is now called ${human.name} ${entry.epithet}: ${entry.criterion.toLowerCase()}`,
+          entityIds: [human.id],
+          x: human.x,
+          y: human.y,
+        });
+      }
+    }
+  }
+
+  /** The epithet a person carries, or null. */
+  epithetOf(id: number): string | null {
+    const log = this.logs.get(id);
+    return log ? epithetFor(log.earned) : null;
+  }
+
+  // --- the director --------------------------------------------------------
+
+  /**
+   * Who is most worth watching right now.
+   *
+   * The score is observational: an unusual action (few others doing it), a
+   * rare epithet, a pregnancy near term, a person in danger. It points the
+   * camera; it never touches anyone.
+   */
+  private updateSpotlight(): void {
+    const counts = new Array(20).fill(0);
+    let living = 0;
+    for (const human of this.humans) {
+      if (!human.alive) continue;
+      counts[human.actionIndex]++;
+      living++;
+    }
+    const scored: SpotlightView[] = [];
+    for (const human of this.humans) {
+      if (!human.alive) continue;
+      let score = 0;
+      let reason = '';
+      const rarity = living > 0 ? 1 - counts[human.actionIndex] / living : 0;
+      score += rarity;
+      if (rarity > 0.8) reason = human.currentAction.toLowerCase();
+      const epithet = this.epithetOf(human.id);
+      if (epithet) {
+        score += 0.4;
+        if (!reason) reason = `${human.name} ${epithet}`;
+      }
+      if (human.mating) {
+        score += 0.8;
+        reason = 'mating';
+      }
+      if (human.pregnancy && human.pregnancy.progress > 0.85) {
+        score += 0.9;
+        reason = 'about to give birth';
+      }
+      if (human.pain > 40) {
+        score += 0.7;
+        reason = 'in pain';
+      }
+      if (human.fever > 0) {
+        score += 0.4;
+        reason = 'fevered';
+      }
+      if (human.building || human.farming) score += 0.3;
+      scored.push({ id: human.id, score, reason: reason || human.currentAction.toLowerCase() });
+    }
+    scored.sort((a, b) => b.score - a.score || a.id - b.id);
+    this.spotlight = scored.slice(0, 3);
+  }
 
   // ---------------------------------------------------------------------
   // Effects
@@ -1222,9 +2546,11 @@ export class World implements SimWorld {
     const sex = this.rng.next() < 0.5 ? Sex.Female : Sex.Male;
     const resolved = genome ? sanitizeGenome(cloneGenome(genome)) : randomGenome(this.rng, 0);
     const name = this.nameRegistry.next(this.rng);
-    const human = new Human(this.nextEntityId++, name, sex, resolved, this.rng.fork());
+    const human = new Human(this.nextEntityId++, name, sex, resolved, this.rng.fork(), this.brainOptions);
     human.x = px;
     human.y = py;
+    human.homeX = px;
+    human.homeY = py;
     human.ageBio = ageBio;
     human.birthTick = this.tick;
     human.stage = ageBio < 1.5 ? LifeStage.Baby : ageBio < 12 ? LifeStage.Child : LifeStage.Adult;
@@ -1235,6 +2561,7 @@ export class World implements SimWorld {
     human.house = house;
     this.humans.push(human);
     this.humanById.set(human.id, human);
+    this.logs.set(human.id, createLog(human.id));
     this.emitEvent('god', `${name} was created by the observer.`, [human.id]);
     this.addEffect('spawn', px, py, 1.6, 1.6);
     return human;
@@ -1261,6 +2588,7 @@ export class World implements SimWorld {
     const [px, py] = nearestWalkable(this.terrain, x, y, 8);
     const pile = new Plant(this.nextEntityId++, PlantSpecies.FoodPile, px, py, this.rng, 1);
     pile.food = amount;
+    pile.origin = FoodOrigin.Gift;
     this.plants.push(pile);
     this.emitEvent('god', `Food was placed by the observer.`, []);
     this.addEffect('spawn', px, py, 1.2, 1);
@@ -1269,6 +2597,15 @@ export class World implements SimWorld {
   strikeLightning(x: number, y: number, radius = 6, damage = 62): void {
     this.addEffect('lightning', x, y, 0.85, radius);
     this.emitEvent('lightning', `Lightning struck (${x.toFixed(0)}, ${y.toFixed(0)}).`, []);
+    // Burning a blighted field stops the blight spreading from it — at the cost
+    // of the crop. That is the one thing the observer can do about blight.
+    for (const field of this.fields) {
+      if (!field.blighted || Math.hypot(field.x - x, field.y - y) > radius) continue;
+      field.blighted = false;
+      field.stage = FieldStage.Fallow;
+      field.growth = 0;
+      this.emitEvent('god', 'A blighted field was burned clean.', []);
+    }
     for (const human of this.humans) {
       if (!human.alive) continue;
       const distance = Math.hypot(human.x - x, human.y - y);
@@ -1294,6 +2631,51 @@ export class World implements SimWorld {
     human.x = px;
     human.y = py;
     this.addEffect('spawn', px, py, 1.2, 1);
+    return true;
+  }
+
+  /** Call rain over a spot: fields drink, the ground recovers a little, fires go out. */
+  rain(x: number, y: number, radius = 12): void {
+    this.rains.push({ x, y, radius, ticks: 20 * SIM_HZ });
+    this.soil.enrich(x, y, radius, 0.12);
+    for (const field of this.fields) {
+      if (Math.hypot(field.x - x, field.y - y) <= radius) field.moisture = Math.min(1, field.moisture + 0.6);
+    }
+    this.addEffect('rain', x, y, 20, radius);
+    this.emitEvent('god', 'Rain fell at the observer’s call.', []);
+  }
+
+  /** Heal a person, and cure fever. */
+  bless(id: number): boolean {
+    const human = this.humanById.get(id);
+    if (!human || !human.alive) return false;
+    human.health = Math.min(100, human.health + 40);
+    human.pain = 0;
+    if (human.fever > 0) {
+      human.fever = 0;
+      human.immune = true;
+    }
+    this.addEffect('spawn', human.x, human.y, 1.4, 1.4);
+    this.emitEvent('god', `${human.name} was blessed.`, [human.id]);
+    return true;
+  }
+
+  /**
+   * The neuro-lab's lever: add to the next valence read-out of one brain.
+   *
+   * The learning rule then strengthens (or weakens) whatever that brain was
+   * doing in the last half second. The observer picks the moment; the brain
+   * decides what gets learned.
+   */
+  pulse(id: number, sign: 1 | -1): boolean {
+    const human = this.humanById.get(id);
+    if (!human || !human.alive) return false;
+    human.pendingPulse = 0.45 * sign;
+    if (sign > 0) {
+      const log = this.logOf(human);
+      if (log) log.pulses += 1;
+    }
+    this.addEffect(sign > 0 ? 'birth' : 'attack', human.x, human.y, 0.8, 0.9);
     return true;
   }
 
@@ -1323,7 +2705,7 @@ export class World implements SimWorld {
     // Structural genes require the network to be rebuilt.
     if (key === 'brainSeed' || key === 'connDensity' || key === 'weightScale' || key === 'excRatio' || key === 'tauScale') {
       const learnedWeights = human.brain.w.slice();
-      human.brain = new Brain(human.genome);
+      human.brain = new Brain(human.genome, this.brainOptions);
       // Carry over what can be carried over: weights are position-indexed in a
       // regenerated topology, so we only reuse them when the shape still matches.
       if (human.brain.synCount === learnedWeights.length) {
@@ -1566,7 +2948,31 @@ export class World implements SimWorld {
       weightDrift: human.brain.weightDrift(),
       meanAbsWeight: human.brain.meanAbsWeight(),
       genome,
-      lifespan: human.genome.lifespan,
+      lifespan: human.genome.lifespan * this.rules.lifespan,
+      epithet: this.epithetOf(human.id),
+      atlas: this.logs.get(human.id)?.earned ?? [],
+      fever: human.fever > 0,
+      diet: (() => {
+        const log = this.logs.get(human.id);
+        return {
+          wild: log?.foodWild ?? 0,
+          crop: log?.foodCrop ?? 0,
+          granary: log?.foodGranary ?? 0,
+          carcass: log?.foodCarcass ?? 0,
+          gift: log?.foodGift ?? 0,
+        };
+      })(),
+      work: (() => {
+        const log = this.logs.get(human.id);
+        return {
+          timber: log?.timber ?? 0,
+          woodLaid: log?.woodLaid ?? 0,
+          completed: log?.completed ?? 0,
+          sown: log?.fieldsSown ?? 0,
+          crops: log?.crops ?? 0,
+          canals: log?.canalsFinished ?? 0,
+        };
+      })(),
     };
   }
 
@@ -1739,7 +3145,7 @@ export class World implements SimWorld {
   }
 
   /** Build the compact snapshot handed to the renderer. */
-  buildSnapshot(revision: number, metrics: DevMetrics): WorldSnapshot {
+  buildSnapshot(revision: number, metrics: DevMetrics, chronicleSince = this.chronicle.lastId): WorldSnapshot {
     let count = 0;
     for (const human of this.humans) if (human.alive) count++;
     const predatorTotal = this.predators.length;
@@ -1906,6 +3312,7 @@ export class World implements SimWorld {
       // allocated already.
       fields: this.fields.map((f) => f.toData()),
       canals: this.canals.map((c) => c.toData()),
+      game: this.buildGameView(chronicleSince),
     };
   }
 
@@ -1941,6 +3348,23 @@ export class World implements SimWorld {
       reachedMilestones: [...this.reachedMilestones],
       matingPairs: this.matingPairs,
       inheritanceReports: [...this.inheritanceReports.entries()].map(([id, report]) => [id, report]),
+      game: {
+        soil: this.soil.serialize(),
+        paths: this.paths.serialize(),
+        era: this.eraState,
+        fate: this.fate,
+        favour: this.favour,
+        chronicle: this.chronicle.serialize(),
+        logs: [...this.logs.values()],
+        discovered: [...this.discovered.entries()],
+        commandLog: this.commandLog,
+        burning: [...this.burning.entries()],
+        burningStructures: [...this.burningStructures.entries()],
+        rains: this.rains,
+        storedFood: this.storedFood,
+        populationHistory: this.populationHistory,
+        lastSeason: this.lastSeason,
+      },
     };
   }
 
@@ -1973,7 +3397,7 @@ export class World implements SimWorld {
     for (const m of (data.reachedMilestones as number[]) ?? []) world.reachedMilestones.add(m);
 
     for (const raw of (data.humans as Record<string, unknown>[]) ?? []) {
-      const human = Human.deserialize(raw, world.rng.fork());
+      const human = Human.deserialize(raw, world.rng.fork(), world.brainOptions);
       world.humans.push(human);
       world.humanById.set(human.id, human);
     }
@@ -2002,6 +3426,36 @@ export class World implements SimWorld {
       world.inheritanceReports.set(id, stored);
     }
 
+    const game = data.game as Record<string, unknown> | undefined;
+    world.logs.clear();
+    world.chronicle.restore(undefined);
+    if (game) {
+      world.soil.restore(game.soil as string);
+      world.paths.restore(game.paths as string);
+      if (game.era) world.eraState = structuredCloneSafe(game.era as EraState);
+      if (game.fate) world.fate = structuredCloneSafe(game.fate as FateState);
+      if (game.favour) world.favour = structuredCloneSafe(game.favour as FavourState);
+      world.chronicle.restore(game.chronicle as Record<string, unknown>);
+      for (const log of (game.logs as BehaviourLog[]) ?? []) world.logs.set(log.id, log);
+      for (const [id, found] of (game.discovered as Array<[string, { tick: number; humanId: number; name: string }]>) ?? []) {
+        world.discovered.set(id, found);
+      }
+      world.commandLog = (game.commandLog as World['commandLog']) ?? [];
+      for (const [id, ticks] of (game.burning as Array<[number, number]>) ?? []) world.burning.set(id, ticks);
+      for (const [id, ticks] of (game.burningStructures as Array<[number, number]>) ?? []) {
+        world.burningStructures.set(id, ticks);
+      }
+      world.rains = ((game.rains as World['rains']) ?? []).map((r) => ({ ...r }));
+      world.storedFood = (game.storedFood as number) ?? 0;
+      world.populationHistory = (game.populationHistory as number[]) ?? [];
+      world.lastSeason = (game.lastSeason as number) ?? -1;
+    } else {
+      // A save from before the game layer: start everyone's record fresh.
+      for (const human of world.humans) world.logs.set(human.id, createLog(human.id));
+    }
+    world.season = seasonFactors(world.simTime, world.seasonOptions());
+    world.crisis = crisisFactors(world.fate, world.tick);
+
     // The world PRNG state is restored LAST.
     //
     // Building entities consumes the world stream (each entity gets a forked
@@ -2018,5 +3472,10 @@ export class World implements SimWorld {
 }
 
 const MILESTONES = [10, 15, 20, 30, 50, 80, 120, 200];
+
+/** Deep copy of plain JSON data, so a restored world owns its state. */
+function structuredCloneSafe<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
 
 export { MOTOR_NAMES, MOTOR_START, labelNeuron, regionOf, STAGE_NAMES, WORLD_W, WORLD_H, Sex, LifeStage };

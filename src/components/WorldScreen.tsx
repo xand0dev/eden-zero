@@ -9,20 +9,33 @@ import { GenomeEditor } from './GenomeEditor';
 import { GenealogyPanel } from './GenealogyPanel';
 import { ScoreBoard } from './ScoreBoard';
 import { readAutosave, readManualSlot, unwrapSave, writeManualSlot, wrapSave, downloadSave, pickSaveFile } from '../simulation/persistence/save';
+import { getWorld, putWorld } from '../simulation/persistence/store';
 import type { GodCommandKind } from '../shared/protocol';
+import { game, useGameUi } from '../ui/game';
+import { CrisisBanner, DirectorCaption, EraChip, FavourMeter, GoalCard, SeasonChip, Toasts } from './game/GameHud';
+import { Journal } from './game/Journal';
+import { Summary } from './game/Summary';
+import { FirstDawn } from './game/FirstDawn';
 
 type Tool = GodCommandKind | 'select' | 'genome';
 
-const TOOLS: Array<{ id: Tool; glyph: string; label: string; hint: string }> = [
+const TOOLS: Array<{ id: Tool; glyph: string; label: string; hint: string; cost?: string }> = [
   { id: 'select', glyph: '◎', label: 'Select', hint: 'Click a human to observe it. Pan by dragging, zoom with the wheel.' },
-  { id: 'spawnHuman', glyph: '✚', label: 'Spawn human', hint: 'Click anywhere to create a new adult human with a fresh genome.' },
-  { id: 'spawnPredator', glyph: '▲', label: 'Spawn predator', hint: 'Release a predator. It runs the same neural architecture as a human.' },
-  { id: 'spawnFood', glyph: '❋', label: 'Spawn food', hint: 'Place a food pile. The ecosystem does not need it — this is an intervention.' },
-  { id: 'lightning', glyph: '⚡', label: 'Lightning', hint: 'Strike a position. Damages everything within a radius.' },
-  { id: 'moveHuman', glyph: '✥', label: 'Move human', hint: 'Click a human, then click a destination to reposition it.' },
-  { id: 'kill', glyph: '☠', label: 'Kill', hint: 'Click a human to end its life. The death is recorded with a reason.' },
-  { id: 'genome', glyph: '⌬', label: 'Edit genome', hint: 'Click a human to open its genome editor.' },
+  { id: 'rain', glyph: '☂', label: 'Rain', hint: 'Call rain over a spot: fields drink, the ground recovers, fires go out.', cost: 'rain' },
+  { id: 'spawnFood', glyph: '❋', label: 'Food', hint: 'Place a food pile. The ecosystem does not need it — this is an intervention.', cost: 'spawnFood' },
+  { id: 'bless', glyph: '✦', label: 'Bless', hint: 'Click a person: heal their wounds and cure fever.', cost: 'bless' },
+  { id: 'lightning', glyph: '⚡', label: 'Lightning', hint: 'Strike a position. Damages everything within a radius, and burns a blighted field clean.', cost: 'lightning' },
+  { id: 'moveHuman', glyph: '✥', label: 'Move', hint: 'Click a human, then click a destination to reposition it.', cost: 'moveHuman' },
+  { id: 'rewardPulse', glyph: '+', label: 'Reward pulse', hint: 'Click a person: their brain learns that what it was just doing was good.', cost: 'rewardPulse' },
+  { id: 'painPulse', glyph: '−', label: 'Pain pulse', hint: 'Click a person: their brain learns that what it was just doing was bad.', cost: 'painPulse' },
+  { id: 'spawnHuman', glyph: '✚', label: 'Create person', hint: 'Click anywhere to create a new adult with a fresh genome. Each one costs more.', cost: 'spawnHuman' },
+  { id: 'spawnPredator', glyph: '▲', label: 'Predator', hint: 'Release a predator. It runs the same neural architecture as a human.', cost: 'spawnPredator' },
+  { id: 'kill', glyph: '☠', label: 'Kill', hint: 'Click a human to end its life. The death is recorded with a reason.', cost: 'kill' },
+  { id: 'genome', glyph: '⌬', label: 'Edit genome', hint: 'Click a human to open its genome editor. In a campaign, only a newborn’s.', cost: 'editGenome' },
 ];
+
+/** Tools that act on one person rather than a place. */
+const PERSON_TOOLS = new Set<Tool>(['bless', 'rewardPulse', 'painPulse', 'kill', 'genome']);
 
 export function WorldScreen({
   showHint,
@@ -32,6 +45,7 @@ export function WorldScreen({
   onDismissHint(): void;
 }): JSX.Element {
   const state = useSim();
+  const ui = useGameUi();
   const viewportRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<WorldRenderer | null>(null);
   const [tool, setTool] = useState<Tool>('select');
@@ -122,6 +136,38 @@ export function WorldScreen({
     rendererRef.current?.setSelected(state.selectedId);
   }, [state.selectedId]);
 
+  useEffect(() => {
+    rendererRef.current?.setGame(state.game);
+  }, [state.game]);
+
+  useEffect(() => {
+    if (state.trails) rendererRef.current?.setTrails(state.trails);
+  }, [state.trails]);
+
+  // Name the selected person over their head, with the epithet the atlas gave them.
+  useEffect(() => {
+    const detail = state.detail;
+    const epithet = detail ? state.game?.epithets[detail.id] : undefined;
+    rendererRef.current?.setLabel(detail?.id ?? null, detail ? `${detail.name}${epithet ? ` ${epithet}` : ''}` : '');
+  }, [state.detail?.id, state.detail?.name, state.game?.epithets]);
+
+  // The director steers the camera; a chronicle entry can ask to be shown.
+  useEffect(() => {
+    if (ui.director && ui.directorTarget !== null) {
+      rendererRef.current?.setFollow(ui.directorTarget);
+      sim.select(ui.directorTarget);
+    }
+  }, [ui.director, ui.directorTarget]);
+
+  useEffect(() => {
+    const onFocus = (event: Event): void => {
+      const detail = (event as CustomEvent<{ x: number; y: number }>).detail;
+      rendererRef.current?.focusOn(detail.x, detail.y);
+    };
+    window.addEventListener('eden:focus', onFocus);
+    return () => window.removeEventListener('eden:focus', onFocus);
+  }, []);
+
   // --- god tool dispatch --------------------------------------------------
   const handleWorldClick = useCallback(
     (x: number, y: number, hitId: number | null) => {
@@ -146,11 +192,18 @@ export function WorldScreen({
         else setStatus('Click directly on a human.');
         return;
       }
-      if (tool === 'kill') {
-        if (hitId !== null) sim.god({ kind: 'kill', id: hitId });
-        else setStatus('Click directly on a human.');
+      if (PERSON_TOOLS.has(tool)) {
+        if (hitId === null) {
+          setStatus('Click directly on a person.');
+          return;
+        }
+        if (tool === 'kill') sim.god({ kind: 'kill', id: hitId });
+        if (tool === 'bless') sim.god({ kind: 'bless', id: hitId });
+        if (tool === 'rewardPulse') sim.god({ kind: 'rewardPulse', id: hitId });
+        if (tool === 'painPulse') sim.god({ kind: 'painPulse', id: hitId });
         return;
       }
+      if (tool === 'rain') sim.god({ kind: 'rain', x, y });
       if (tool === 'spawnHuman') sim.god({ kind: 'spawnHuman', x, y });
       if (tool === 'spawnPredator') sim.god({ kind: 'spawnPredator', x, y });
       if (tool === 'spawnFood') sim.god({ kind: 'spawnFood', x, y });
@@ -209,6 +262,31 @@ export function WorldScreen({
           setTool('select');
           setPendingMoveId(null);
           setStatus(null);
+          if (game.getSnapshot().journal) game.openJournal(null);
+          break;
+        case 'c':
+        case 'C':
+          game.openJournal('chronicle');
+          break;
+        case 'a':
+        case 'A':
+          game.openJournal('atlas');
+          break;
+        case 'k':
+        case 'K':
+          game.openJournal('codex');
+          break;
+        case 'v':
+        case 'V':
+          game.openJournal('vault');
+          break;
+        case 'n':
+        case 'N':
+          game.openJournal('lab');
+          break;
+        case 'd':
+        case 'D':
+          game.setDirector(!game.getSnapshot().director);
           break;
         default:
           break;
@@ -224,12 +302,22 @@ export function WorldScreen({
   const manualSave = useCallback(async () => {
     const payload = await sim.serialize();
     const snapshot = sim.getSnapshot();
-    writeManualSlot(wrapSave(payload, snapshot.config.seed, snapshot.tick, snapshot.simTime));
-    setStatus('Saved to the local slot.');
+    const text = wrapSave(payload, snapshot.config.seed, snapshot.tick, snapshot.simTime);
+    const ok = await putWorld(`slot-${snapshot.config.seed}`, text, {
+      seed: snapshot.config.seed,
+      tick: snapshot.tick,
+      savedAt: new Date().toISOString(),
+      mode: snapshot.game?.mode,
+      era: snapshot.game?.era,
+      population: snapshot.stats?.population,
+    });
+    if (!ok) writeManualSlot(text);
+    setStatus(`Saved (${(text.length / 1024 / 1024).toFixed(1)} MB before compression).`);
   }, []);
 
-  const manualLoad = useCallback(() => {
-    const text = readManualSlot() ?? readAutosave();
+  const manualLoad = useCallback(async () => {
+    const seed = sim.getSnapshot().config.seed;
+    const text = (await getWorld(`slot-${seed}`)) ?? readManualSlot() ?? readAutosave();
     if (!text) {
       setStatus('Nothing saved yet.');
       return;
@@ -263,7 +351,21 @@ export function WorldScreen({
   }, []);
 
   const stats = state.stats;
+  const view = state.game;
   const activeTool = useMemo(() => TOOLS.find((entry) => entry.id === tool), [tool]);
+  const visibleTools = TOOLS.filter((entry) => {
+    if (!view) return true;
+    if (entry.id !== 'select' && !view.interventionsAllowed) return false;
+    if (entry.id === 'spawnHuman' && !view.spawnAllowed) return false;
+    return true;
+  });
+  const priceOf = (kind: string | undefined): string | null => {
+    if (!kind || !view?.favour.enabled) return null;
+    return String(view.favour.prices[kind] ?? '');
+  };
+  const cooldownOf = (kind: string | undefined): number => (kind && view ? view.favour.cooldowns[kind] ?? 0 : 0);
+  const affordable = (kind: string | undefined): boolean =>
+    !kind || !view?.favour.enabled || (view.favour.value >= (view.favour.prices[kind] ?? 0) && cooldownOf(kind) <= 0);
 
   return (
     <div className="app">
@@ -272,6 +374,8 @@ export function WorldScreen({
           <div className="brand">
             EDEN<span>//0</span>
           </div>
+          <EraChip />
+          <SeasonChip />
           <div className="stat-strip">
             <span>
               pop <b>{stats?.population ?? 0}</b>
@@ -279,27 +383,28 @@ export function WorldScreen({
             <span>
               gen <b>{stats?.oldestGeneration ?? 0}</b>
             </span>
+            <span title="Huts finished / building sites still wanting timber">
+              homes
+              <b>
+                {stats?.huts ?? 0}
+                {(stats?.sites ?? 0) > 0 && <em> +{stats?.sites}</em>}
+              </b>
+            </span>
+            <span title="Food held in granaries">
+              store <b>{Math.floor(view?.storedFood ?? 0)}</b>
+            </span>
+            <span title="How much the land around the village has left to give">
+              land <b>{Math.round((view?.landHealth ?? 1) * 100)}%</b>
+            </span>
             <span>
               births <b>{stats?.births ?? 0}</b>
             </span>
             <span>
               deaths <b>{stats?.deaths ?? 0}</b>
             </span>
-            <span>
-              predators <b>{stats?.predators ?? 0}</b>
-            </span>
-            <span>
-              plants <b>{stats?.plants ?? 0}</b>
-            </span>
-            <span title="Huts finished / building sites still wanting timber">
-              huts
-              <b>
-                {stats?.huts ?? 0}
-                {(stats?.sites ?? 0) > 0 && <em> +{stats?.sites}</em>}
-              </b>
-            </span>
           </div>
           <div className="spacer" />
+          <FavourMeter />
           <div className="speed-group">
             <button className={state.paused ? 'active' : ''} onClick={() => sim.setSpeed(0)} title="Pause (Space)">
               ⏸
@@ -323,77 +428,103 @@ export function WorldScreen({
             >
               MAX
             </button>
+            <button
+              className={ui.director ? 'active' : ''}
+              onClick={() => game.setDirector(!ui.director)}
+              title="Director: after twenty idle seconds the camera follows whoever is most worth watching (D)"
+            >
+              DIR
+            </button>
           </div>
           <div className="clock">
-            {formatDayPhase(state.dayPhase)} · {formatSimTime(state.simTime)} · tick {state.tick}
+            {formatDayPhase(state.dayPhase)} · {formatSimTime(state.simTime)}
           </div>
         </div>
         <ScoreBoard />
+        <CrisisBanner />
+        <Toasts />
+        <DirectorCaption />
+        <FirstDawn />
 
         <div className="godtools glass">
-          <h3>God tools</h3>
-          {TOOLS.map((entry) => (
-            <button
-              key={entry.id}
-              className={`tool ${tool === entry.id ? 'active' : ''}`}
-              onClick={() => {
-                setTool(entry.id);
-                setPendingMoveId(null);
-                setStatus(null);
-              }}
-            >
-              <span className="glyph">{entry.glyph}</span>
-              {entry.label}
-            </button>
-          ))}
+          <GoalCard />
+          <h3>{view?.favour.enabled ? 'Interventions' : 'God tools'}</h3>
+          {visibleTools.map((entry) => {
+            const price = priceOf(entry.cost);
+            const cooldown = cooldownOf(entry.cost);
+            return (
+              <button
+                key={entry.id}
+                className={`tool ${tool === entry.id ? 'active' : ''} ${affordable(entry.cost) ? '' : 'poor'}`}
+                onClick={() => {
+                  setTool(entry.id);
+                  setPendingMoveId(null);
+                  setStatus(null);
+                }}
+                title={entry.hint}
+              >
+                <span className="glyph">{entry.glyph}</span>
+                <span className="tool-label">{entry.label}</span>
+                {cooldown > 0 ? <span className="tool-cost">{Math.ceil(cooldown)}s</span> : price ? <span className="tool-cost">{price}</span> : null}
+              </button>
+            );
+          })}
+          {view && !view.interventionsAllowed ? (
+            <div className="tool-hint">This world’s charter makes you only an observer.</div>
+          ) : null}
           {activeTool ? <div className="tool-hint">{activeTool.hint}</div> : null}
           {status ? <div className="tool-hint">{status}</div> : null}
 
-          <hr />
-          <h3>Environment</h3>
-          <div className="field">
-            <label>Temperature {temperature >= 0 ? '+' : ''}{temperature.toFixed(1)}°</label>
-            <input
-              type="range"
-              min={-16}
-              max={20}
-              step={0.5}
-              value={temperature}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                setTemperature(value);
-                sim.god({ kind: 'temperature', offset: value });
-              }}
-            />
-          </div>
-          <div className="field">
-            <label>Time of day — {formatDayPhase(state.dayPhase)}</label>
-            <input
-              type="range"
-              min={0}
-              max={0.999}
-              step={0.01}
-              value={state.dayPhase}
-              onChange={(event) => sim.god({ kind: 'timeOfDay', phase: Number(event.target.value) })}
-            />
-          </div>
+          {view?.interventionsAllowed !== false ? (
+            <>
+              <hr />
+              <h3>Environment</h3>
+              <div className="field">
+                <label>
+                  Temperature {temperature >= 0 ? '+' : ''}
+                  {temperature.toFixed(1)}°{priceOf('temperature') ? ` · ${priceOf('temperature')}` : ''}
+                </label>
+                <input
+                  type="range"
+                  min={-16}
+                  max={20}
+                  step={0.5}
+                  value={temperature}
+                  onChange={(event) => setTemperature(Number(event.target.value))}
+                  onPointerUp={() => sim.god({ kind: 'temperature', offset: temperature })}
+                  onKeyUp={() => sim.god({ kind: 'temperature', offset: temperature })}
+                />
+              </div>
+            </>
+          ) : null}
 
+          <hr />
+          <h3>Journal</h3>
+          <div className="world-actions">
+            <button onClick={() => game.openJournal('chronicle')}>Chronicle</button>
+            <button onClick={() => game.openJournal('atlas')}>Atlas</button>
+            <button onClick={() => game.openJournal('codex')}>Codex</button>
+            <button onClick={() => game.openJournal('lab')}>Neuro-lab</button>
+            <button onClick={() => game.openJournal('vault')}>Vault</button>
+            <button
+              onClick={() => {
+                sim.requestGenealogy();
+                setShowGenealogy(true);
+              }}
+            >
+              Family tree
+            </button>
+          </div>
           <hr />
           <h3>World</h3>
           <div className="world-actions">
             <button onClick={manualSave}>Save</button>
-            <button onClick={manualLoad}>Load</button>
+            <button onClick={() => void manualLoad()}>Load</button>
             <button onClick={exportSave}>Export</button>
             <button onClick={importSave}>Import</button>
           </div>
-          <button
-            className="wide"
-            onClick={() => {
-              sim.requestGenealogy();
-              setShowGenealogy(true);
-            }}
-          >
-            Family tree
+          <button className="wide" onClick={() => game.endCampaign()}>
+            {view?.mode === 'sandbox' ? 'Close world' : 'End campaign'}
           </button>
         </div>
 
@@ -414,9 +545,9 @@ export function WorldScreen({
             </div>
           ) : (
             <div className="hint">
-              <span className="kbd">space</span> pause · <span className="kbd">.</span> step ·{' '}
-              <span className="kbd">1-5</span> speed · <span className="kbd">f</span> follow ·{' '}
-              <span className="kbd">esc</span> cancel tool
+              <span className="kbd">space</span> pause · <span className="kbd">1-5</span> speed · <span className="kbd">c</span>{' '}
+              chronicle · <span className="kbd">a</span> atlas · <span className="kbd">d</span> director ·{' '}
+              <span className="kbd">f</span> follow
             </div>
           )}
         </div>
@@ -428,6 +559,7 @@ export function WorldScreen({
         <div className="timeline glass">
           <EventFeed />
         </div>
+        <Journal />
       </div>
 
       {devVisible ? <DevPanel onClose={() => setDevVisible(false)} /> : null}
@@ -435,6 +567,7 @@ export function WorldScreen({
         <GenomeEditor humanId={genomeTarget} onClose={() => setGenomeTarget(null)} />
       ) : null}
       {showGenealogy ? <GenealogyPanel onClose={() => setShowGenealogy(false)} /> : null}
+      <Summary />
     </div>
   );
 }

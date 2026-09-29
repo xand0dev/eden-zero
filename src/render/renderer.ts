@@ -6,6 +6,9 @@ import type { EntityView } from '../worker/client';
 import { HumanoidSprite } from './humanoid';
 import { VegetationLayer } from './vegetation';
 import { CultivationLayer } from './cultivation';
+import { GameLayer } from './gameLayer';
+import { moodFor, NEUTRAL_MOOD, type Mood } from './seasons';
+import type { GameView } from '../shared/types';
 import { DEEP_SEA, bakeTerrain } from './terrain';
 import { StructureSprite } from './structure';
 import { interpolatePose, smoothInterval, snapshotAlpha } from './interpolate';
@@ -76,6 +79,11 @@ export class WorldRenderer {
    * gain.
    */
   private readonly cultivation = new CultivationLayer();
+  private readonly gameLayer = new GameLayer();
+  private mood: Mood = NEUTRAL_MOOD;
+  private moodKey = '';
+  private labelId: number | null = null;
+  private labelText = '';
   private readonly entityLayer = new Container();
   private readonly effectLayer = new Container();
 
@@ -187,6 +195,7 @@ export class WorldRenderer {
     this.vegetation = new VegetationLayer();
     this.root.addChild(
       this.terrainLayer,
+      this.gameLayer.ground,
       this.cultivation.container,
       this.vegetation.shadows,
       this.vegetation.ground,
@@ -194,6 +203,7 @@ export class WorldRenderer {
       this.structureLayer,
       this.entityLayer,
       this.effectLayer,
+      this.gameLayer.sky,
     );
     // The selection ring lives in world space (inside `root`); the day/night
     // wash is a screen-space overlay and must NOT inherit the camera transform.
@@ -241,6 +251,7 @@ export class WorldRenderer {
     }
     this.terrainSprite.width = terrain.width;
     this.terrainSprite.height = terrain.height;
+    this.gameLayer.setTerrain(terrain);
 
     if (!this.shimmer) {
       this.shimmer = [new Sprite(baked.shimmer[0]), new Sprite(baked.shimmer[1])];
@@ -416,6 +427,14 @@ export class WorldRenderer {
     }
 
     for (const sprite of this.structures.values()) sprite.animate(clampedDt);
+    this.gameLayer.animate(clampedDt, this.lastEntities);
+    if (this.labelId !== null) {
+      const target = this.lastEntities.find((e) => e.id === this.labelId);
+      if (target) {
+        const sprite = this.humanSprites.get(target.id);
+        this.gameLayer.setLabel(this.labelText, sprite?.x ?? target.x, sprite?.y ?? target.y);
+      } else this.gameLayer.setLabel(null);
+    } else this.gameLayer.setLabel(null);
     this.updateEffects();
     this.updateOverlay();
     this.updateCamera(clampedDt);
@@ -458,9 +477,10 @@ export class WorldRenderer {
     // every check I had.
     const width = this.app.screen.width;
     const height = this.app.screen.height;
-    if (Math.abs(this.currentLight - this.gradedLight) > 0.004) {
+    if (Math.abs(this.currentLight - this.gradedLight) > 0.004 || this.moodDirty) {
       this.gradedLight = this.currentLight;
-      this.grade.matrix = gradeMatrix(this.currentLight) as unknown as typeof this.grade.matrix;
+      this.moodDirty = false;
+      this.grade.matrix = gradeMatrix(this.currentLight, this.mood) as unknown as typeof this.grade.matrix;
     }
     const lamps = lampStrength(this.currentLight);
     for (const light of this.hutLights.values()) {
@@ -495,6 +515,40 @@ export class WorldRenderer {
 
   setLight(light: number): void {
     this.currentLight = light;
+  }
+
+  private moodDirty = false;
+
+  /** The game layer's state: the season's grade, snow, fire, rain, fever. */
+  setGame(game: GameView | null): void {
+    this.gameLayer.setGame(game);
+    if (!game) return;
+    const crisis = game.crisis?.phase === 'active' ? game.crisis.kind : null;
+    const key = `${game.season}|${Math.round(game.seasonPhase * 40)}|${crisis ?? ''}`;
+    if (key !== this.moodKey) {
+      this.moodKey = key;
+      this.mood = moodFor(game.season, game.seasonPhase, crisis);
+      this.moodDirty = true;
+    }
+  }
+
+  setTrails(bytes: Uint8Array): void {
+    this.gameLayer.setTrails(bytes);
+  }
+
+  /** Name the selected person over their head. */
+  setLabel(id: number | null, text: string): void {
+    this.labelId = id;
+    this.labelText = text;
+  }
+
+  /** Glide the camera to a point (the chronicle's "show me where"). */
+  focusOn(x: number, y: number): void {
+    this.followId = null;
+    this.camera.x = x;
+    this.camera.y = y;
+    this.camera.zoom = Math.max(this.camera.zoom, 2.2);
+    this.clampCamera();
   }
 
   onEntities(entities: EntityView[]): void {
@@ -551,7 +605,7 @@ export class WorldRenderer {
       seen.add(data.id);
       let sprite = this.structures.get(data.id);
       if (!sprite) {
-        sprite = new StructureSprite(data.id * 0.618);
+        sprite = new StructureSprite(data.id * 0.618, data.kind ?? 0);
         sprite.position.set(data.x, data.y);
         this.structureLayer.addChild(sprite);
         this.structures.set(data.id, sprite);
@@ -560,8 +614,13 @@ export class WorldRenderer {
       // when the observer is not watching a particular hut.
       const sinceBuild = tick - data.lastBuildTick;
       const pulse = sinceBuild >= 0 && sinceBuild < 30 ? 1 - sinceBuild / 30 : 0;
-      sprite.update(data.wood / data.required, data.complete, pulse);
-      if (data.complete && !this.hutLights.has(data.id) && this.glowTexture) {
+      sprite.update(data.wood / data.required, data.complete, pulse, data.store ?? 0);
+      const lit = (data.kind ?? 0) === 0 || data.kind === 4 || data.kind === 6;
+      if (!data.complete && this.hutLights.has(data.id)) {
+        this.hutLights.get(data.id)?.destroy();
+        this.hutLights.delete(data.id);
+      }
+      if (data.complete && lit && !this.hutLights.has(data.id) && this.glowTexture) {
         const light = new Sprite(this.glowTexture);
         light.anchor.set(0.5);
         light.position.set(data.x, data.y + 0.95);

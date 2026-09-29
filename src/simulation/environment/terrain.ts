@@ -1,5 +1,6 @@
 import { Rng } from '../rng';
 import { WORLD_H, WORLD_W } from '../../shared/constants';
+import { DEFAULT_TERRAIN, type TerrainParams } from '../game/biomes';
 
 /**
  * Terrain generation.
@@ -44,6 +45,11 @@ export interface TerrainData {
   moisture: Float32Array;
   /** Tiles where plants can take root. */
   fertile: Uint8Array;
+  /**
+   * Water that can be drunk. Identical to the water tiles except on a salt
+   * coast, where only inland water — not connected to the map edge — is fresh.
+   */
+  fresh: Uint8Array;
   shelters: Shelter[];
 }
 
@@ -91,7 +97,12 @@ function fbm(lattice: Float32Array, size: number, x: number, y: number, octaves:
   return sum / norm;
 }
 
-export function generateTerrain(seed: number | string, width = WORLD_W, height = WORLD_H): TerrainData {
+export function generateTerrain(
+  seed: number | string,
+  width = WORLD_W,
+  height = WORLD_H,
+  params: TerrainParams = DEFAULT_TERRAIN,
+): TerrainData {
   const rng = new Rng(`${seed}:terrain`);
   const LATTICE = 64;
   const elevationLattice = makeLattice(rng, LATTICE);
@@ -105,39 +116,47 @@ export function generateTerrain(seed: number | string, width = WORLD_W, height =
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const nx = (x / width) * 4.2;
-      const ny = (y / height) * 3.4;
+      const nx = (x / width) * 4.2 * params.scale;
+      const ny = (y / height) * 3.4 * params.scale;
 
       // Radial falloff pushes the coastline inward so we get an island rather
       // than an ocean with random land at the edges.
       const dx = (x / (width - 1)) * 2 - 1;
       const dy = (y / (height - 1)) * 2 - 1;
       const radial = Math.sqrt(dx * dx * 0.85 + dy * dy * 1.15);
-      const falloff = Math.max(0, 1 - radial * radial * 1.02);
+      const falloff = Math.max(0, 1 - radial * radial * params.falloff);
 
       const base = fbm(elevationLattice, LATTICE, nx, ny, 5);
       const detail = fbm(detailLattice, LATTICE, nx * 3.1, ny * 3.1, 3);
       const e = base * 0.78 + detail * 0.22;
-      const height01 = e * falloff + 0.06;
+      // A volcanic island raises a cone in the middle; zero leaves the terrain as it was.
+      const cone = params.volcano > 0 ? params.volcano * Math.max(0, 1 - radial * 2.4) ** 2 : 0;
+      const height01 = e * falloff + 0.06 + cone;
 
-      const m = fbm(moistureLattice, LATTICE, nx * 0.9 + 11, ny * 0.9 + 7, 4);
+      const m = fbm(moistureLattice, LATTICE, nx * 0.9 + 11, ny * 0.9 + 7, 4) + params.moistureBias;
 
       const index = y * width + x;
       elevation[index] = height01;
       moisture[index] = m;
 
       let tile: number;
-      if (height01 < 0.315) tile = Tile.Water;
-      else if (height01 < 0.355) tile = Tile.Shallow;
-      else if (height01 < 0.395) tile = Tile.Sand;
-      else if (height01 > 0.78) tile = Tile.Rock;
+      const sea = params.seaLevel;
+      if (height01 < 0.315 + sea) tile = Tile.Water;
+      else if (height01 < 0.355 + sea) tile = Tile.Shallow;
+      else if (height01 < 0.395 + sea) tile = Tile.Sand;
+      else if (height01 > params.rockLevel) tile = Tile.Rock;
       else if (m > 0.545 && height01 > 0.44) tile = Tile.Forest;
       else tile = Tile.Grass;
 
       tiles[index] = tile;
-      fertile[index] = tile === Tile.Grass || tile === Tile.Forest ? 1 : 0;
+      fertile[index] =
+        tile === Tile.Grass || tile === Tile.Forest || (params.fertileShallows && tile === Tile.Shallow) ? 1 : 0;
     }
   }
+
+  const fresh = new Uint8Array(width * height);
+  for (let i = 0; i < tiles.length; i++) fresh[i] = isWater(tiles[i]) ? 1 : 0;
+  if (params.saltSea) markSeaSalt(tiles, fresh, width, height);
 
   // Shelter zones: a handful of rocky outcrops that moderate temperature.
   const shelters: Shelter[] = [];
@@ -162,7 +181,45 @@ export function generateTerrain(seed: number | string, width = WORLD_W, height =
     shelters.push({ x: width * 0.5, y: height * 0.5, radius: 6 });
   }
 
-  return { width, height, tiles, elevation, moisture, fertile, shelters };
+  return { width, height, tiles, elevation, moisture, fertile, fresh, shelters };
+}
+
+/** Flood-fill the water connected to the map edge and mark it undrinkable. */
+function markSeaSalt(tiles: Uint8Array, fresh: Uint8Array, width: number, height: number): void {
+  const queue = new Int32Array(width * height);
+  let head = 0;
+  let tail = 0;
+  const push = (index: number): void => {
+    if (!fresh[index]) return;
+    fresh[index] = 0;
+    queue[tail++] = index;
+  };
+  for (let x = 0; x < width; x++) {
+    push(x);
+    push((height - 1) * width + x);
+  }
+  for (let y = 0; y < height; y++) {
+    push(y * width);
+    push(y * width + width - 1);
+  }
+  while (head < tail) {
+    const index = queue[head++];
+    const x = index % width;
+    const y = (index / width) | 0;
+    if (x > 0) push(index - 1);
+    if (x < width - 1) push(index + 1);
+    if (y > 0) push(index - width);
+    if (y < height - 1) push(index + width);
+  }
+  void tiles;
+}
+
+/** Whether the tile at (x, y) holds water that can be drunk. */
+export function isFreshAt(terrain: TerrainData, x: number, y: number): boolean {
+  const tx = Math.floor(x);
+  const ty = Math.floor(y);
+  if (tx < 0 || ty < 0 || tx >= terrain.width || ty >= terrain.height) return false;
+  return terrain.fresh[ty * terrain.width + tx] === 1;
 }
 
 export function tileAt(terrain: TerrainData, x: number, y: number): number {
@@ -207,7 +264,7 @@ export function computeWaterDistance(terrain: TerrainData): Uint8Array {
   let tail = 0;
 
   for (let i = 0; i < tiles.length; i++) {
-    if (isWater(tiles[i])) {
+    if (terrain.fresh ? terrain.fresh[i] === 1 : isWater(tiles[i])) {
       distance[i] = 0;
       queue[tail++] = i;
     }

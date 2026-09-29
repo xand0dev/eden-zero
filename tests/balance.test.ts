@@ -93,6 +93,9 @@ describe('cultivation metrics', () => {
     tally.observe(world);
     expect(tally.sowings).toBe(0);
 
+    // A crop's yield depends on the field's fertility and the season, so the
+    // expected food is what the field said it would give at each harvest.
+    let expectedFood = 0;
     for (let cycle = 1; cycle <= 2; cycle++) {
       expect(world.sowField(0, human)).toBe(true);
       tally.observe(world);
@@ -104,6 +107,7 @@ describe('cultivation metrics', () => {
       expect(metrics.sown).toBe(0);
       expect(metrics.ripe).toBe(1);
 
+      expectedFood += field!.yieldNow() * world.season.harvestYield;
       expect(world.harvestField(0, human)).toBe(true);
       tally.observe(world);
       // Harvested ground goes back to fallow: the field persists, the crop does not.
@@ -117,7 +121,9 @@ describe('cultivation metrics', () => {
     // Repeated harvests of one field are two harvests, not two fields.
     expect(metrics.fields).toBe(1);
     expect(metrics.foodPiles).toBe(2);
-    expect(metrics.foodOnGround).toBeCloseTo(2 * FIELD_YIELD, 5);
+    expect(metrics.foodOnGround).toBeCloseTo(expectedFood, 5);
+    // Each crop is at most a full yield, and a tired field gives less.
+    expect(expectedFood).toBeLessThanOrEqual(2 * FIELD_YIELD * 1.4);
     expect(tally.eventsMissed).toBe(0);
   });
 

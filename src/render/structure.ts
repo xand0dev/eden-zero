@@ -12,6 +12,10 @@ import { Container, Graphics } from 'pixi.js';
  *   2. rising      — a wattle wall that climbs with every load of timber, a
  *                    woodpile beside it
  *   3. finished    — a conical thatched roof, a door, a hearth glow and smoke
+ *
+ * Other kinds share the construction stages and finish as themselves: a granary
+ * on stilts with its store heaped at the door, a stone-ringed well, an open
+ * workshop, a stone house, a length of palisade, a ring of standing stones.
  */
 
 const GROUND = 0x7a6448;
@@ -24,6 +28,11 @@ const THATCH_DARK = 0x7e5a2e;
 const DOOR = 0x22160c;
 const GLOW = 0xffb45e;
 const LINE = 0x1c130a;
+const STONE = 0x8c8a84;
+const STONE_LIGHT = 0xb8b4aa;
+const STONE_DARK = 0x5a5850;
+const GRAIN = 0xe0b860;
+const WELL_WATER = 0x21465a;
 
 export class StructureSprite extends Container {
   private readonly shadow = new Graphics();
@@ -34,16 +43,25 @@ export class StructureSprite extends Container {
   private readonly pulseRing = new Graphics();
 
   /** Footprint radius in world tiles: a hut is about three people across. */
-  private readonly radius = 1.45;
+  private readonly radius: number;
   private readonly variant: number;
+  private readonly kind: number;
   private lastProgress = -1;
   private lastComplete = false;
+  private lastStore = -1;
   private clock = 0;
 
-  constructor(seedPhase: number) {
+  constructor(seedPhase: number, kind = 0) {
     super();
     this.variant = seedPhase % 1;
+    this.kind = kind;
+    this.radius = kind === 5 ? 1.1 : kind === 2 ? 0.9 : kind === 3 ? 1.6 : 1.45;
     this.addChild(this.shadow, this.base, this.hut, this.glow, this.smoke, this.pulseRing);
+  }
+
+  /** Whether this kind has a hearth: smoke and a night glow. */
+  private get hearth(): boolean {
+    return this.kind === 0 || this.kind === 4 || this.kind === 6;
   }
 
   /**
@@ -51,16 +69,18 @@ export class StructureSprite extends Container {
    * @param complete  true once the hut is finished
    * @param pulse     0..1 animation phase while timber is actively being laid
    */
-  update(progress: number, complete: boolean, pulse: number): void {
+  update(progress: number, complete: boolean, pulse: number, store = 0): void {
     this.pulseRing.clear();
     if (pulse > 0) {
       this.pulseRing
         .ellipse(0, 0.3, this.radius + 0.4 + pulse * 0.6, (this.radius + 0.4 + pulse * 0.6) * 0.45)
         .stroke({ color: THATCH_LIGHT, width: 0.08, alpha: (1 - pulse) * 0.7 });
     }
-    if (progress === this.lastProgress && complete === this.lastComplete) return;
+    const storeLevel = Math.round(Math.min(1, store / 80) * 6);
+    if (progress === this.lastProgress && complete === this.lastComplete && storeLevel === this.lastStore) return;
     this.lastProgress = progress;
     this.lastComplete = complete;
+    this.lastStore = storeLevel;
     const R = this.radius;
 
     // Trampled ground and the shadow a finished roof casts to the south-east.
@@ -72,13 +92,38 @@ export class StructureSprite extends Container {
 
     const g = this.hut.clear();
     if (complete) {
-      this.drawRoundhouse(g, R);
+      switch (this.kind) {
+        case 1:
+          this.drawGranary(g, R, storeLevel / 6);
+          break;
+        case 2:
+          this.drawWell(g, R);
+          break;
+        case 3:
+          this.drawWorkshop(g, R);
+          break;
+        case 4:
+          this.drawRoundhouse(g, R, true);
+          break;
+        case 5:
+          this.drawPalisade(g, R, 1);
+          break;
+        case 6:
+          this.drawShrine(g, R);
+          break;
+        default:
+          this.drawRoundhouse(g, R);
+      }
+    } else if (this.kind === 5) {
+      this.drawPalisade(g, R, progress);
     } else {
       this.drawConstruction(g, R, progress);
     }
 
     this.glow.clear();
-    if (complete) {
+    if (complete && this.kind === 6) {
+      this.glow.ellipse(0, 0.1, 0.8, 0.4).fill({ color: GLOW, alpha: 0.2 });
+    } else if (complete && this.hearth) {
       this.glow.ellipse(0, R * 0.62, 0.9, 0.42).fill({ color: GLOW, alpha: 0.14 });
       this.glow.ellipse(0, R * 0.55, 0.45, 0.22).fill({ color: GLOW, alpha: 0.22 });
     }
@@ -86,7 +131,7 @@ export class StructureSprite extends Container {
 
   /** Smoke from the roof: a slow, looping wisp. Call every frame. */
   animate(dt: number): void {
-    if (!this.lastComplete) {
+    if (!this.lastComplete || !this.hearth) {
       if (this.smoke.visible) this.smoke.clear();
       this.smoke.visible = false;
       return;
@@ -102,19 +147,31 @@ export class StructureSprite extends Container {
     }
   }
 
-  private drawRoundhouse(g: Graphics, R: number): void {
+  private drawRoundhouse(g: Graphics, R: number, stone = false): void {
     // Wall band: the part of the drum visible below the eaves at the front.
-    g.ellipse(0, 0.35, R * 0.92, R * 0.52).fill(WATTLE_DARK);
-    g.rect(-R * 0.92, -0.05, R * 1.84, 0.4).fill(WATTLE);
+    g.ellipse(0, 0.35, R * 0.92, R * 0.52).fill(stone ? STONE_DARK : WATTLE_DARK);
+    g.rect(-R * 0.92, -0.05, R * 1.84, 0.4).fill(stone ? STONE : WATTLE);
     g.ellipse(0, 0.35, R * 0.92, R * 0.52).stroke({ color: LINE, width: 0.05, alpha: 0.6 });
-    // Wattle weave on the wall band.
-    for (let i = -4; i <= 4; i++) {
-      const x = (i / 4.6) * R * 0.88;
-      g.moveTo(x, 0.1).lineTo(x, 0.35 + Math.sqrt(Math.max(0, 1 - (x / (R * 0.92)) ** 2)) * R * 0.5).stroke({
-        color: WATTLE_DARK,
-        width: 0.05,
-        alpha: 0.7,
-      });
+    if (stone) {
+      // Coursed stone: staggered blocks along the wall band.
+      for (let row = 0; row < 2; row++) {
+        for (let i = -5; i <= 5; i++) {
+          const x = (i + (row ? 0.5 : 0)) * (R * 0.17);
+          if (Math.abs(x) > R * 0.86) continue;
+          const y = 0.02 + row * 0.2 + Math.sqrt(Math.max(0, 1 - (x / (R * 0.92)) ** 2)) * R * 0.28;
+          g.roundRect(x - 0.11, y, 0.22, 0.16, 0.04).fill({ color: (i + row) % 2 ? STONE_LIGHT : STONE, alpha: 0.9 });
+        }
+      }
+    } else {
+      // Wattle weave on the wall band.
+      for (let i = -4; i <= 4; i++) {
+        const x = (i / 4.6) * R * 0.88;
+        g.moveTo(x, 0.1).lineTo(x, 0.35 + Math.sqrt(Math.max(0, 1 - (x / (R * 0.92)) ** 2)) * R * 0.5).stroke({
+          color: WATTLE_DARK,
+          width: 0.05,
+          alpha: 0.7,
+        });
+      }
     }
     // Door, facing the observer.
     g.roundRect(-0.28, 0.25, 0.56, 0.62, 0.22).fill(DOOR);
@@ -164,6 +221,114 @@ export class StructureSprite extends Container {
     }
     // Smoke hole.
     g.circle(apexX, apexY + 0.12, 0.1).fill(0x2a1c10);
+  }
+
+  /** A store raised on stilts against damp and vermin, its harvest heaped at the door. */
+  private drawGranary(g: Graphics, R: number, fill: number): void {
+    const w = R * 1.5;
+    const h = R * 0.8;
+    // Stilts.
+    for (const x of [-w / 2 + 0.15, w / 2 - 0.15]) {
+      for (const y of [0.35, 0.75]) g.rect(x - 0.06, y - 0.2, 0.12, 0.5).fill(STAKE);
+    }
+    // Body.
+    g.rect(-w / 2, -h * 0.35, w, h * 0.75).fill(WATTLE).stroke({ color: LINE, width: 0.05, alpha: 0.6 });
+    for (let i = 1; i < 6; i++) g.moveTo(-w / 2 + (w * i) / 6, -h * 0.35).lineTo(-w / 2 + (w * i) / 6, h * 0.4).stroke({ color: WATTLE_DARK, width: 0.04 });
+    g.roundRect(-0.22, -0.05, 0.44, 0.45, 0.06).fill(DOOR);
+    // Gable roof.
+    g.poly([-w / 2 - 0.25, -h * 0.3, 0, -h * 1.35, w / 2 + 0.25, -h * 0.3]).fill(THATCH).stroke({ color: LINE, width: 0.05, alpha: 0.6 });
+    g.poly([0, -h * 1.35, w / 2 + 0.25, -h * 0.3, 0.1, -h * 0.3]).fill({ color: THATCH_DARK, alpha: 0.45 });
+    for (let i = 1; i < 8; i++) {
+      const t = i / 8;
+      g.moveTo(0, -h * 1.35).lineTo(-w / 2 - 0.25 + (w + 0.5) * t, -h * 0.3).stroke({ color: THATCH_LIGHT, width: 0.03, alpha: 0.35 });
+    }
+    // The store: sacks and a heap of grain that grows with what is held.
+    if (fill > 0) {
+      const heap = 0.25 + fill * 0.55;
+      g.ellipse(w / 2 + 0.35, 0.75, heap, heap * 0.45).fill(GRAIN).stroke({ color: THATCH_DARK, width: 0.03, alpha: 0.5 });
+      for (let i = 0; i < Math.round(fill * 4); i++) {
+        g.roundRect(-w / 2 - 0.55 + i * 0.28, 0.55 - (i % 2) * 0.12, 0.3, 0.36, 0.1).fill(0xc8a46a).stroke({ color: LINE, width: 0.025, alpha: 0.5 });
+      }
+    }
+  }
+
+  /** A ring of stones around dark water, a frame and a bucket. */
+  private drawWell(g: Graphics, R: number): void {
+    g.ellipse(0, 0.3, R * 0.95, R * 0.52).fill(STONE_DARK);
+    g.ellipse(0, 0.2, R * 0.95, R * 0.52).fill(STONE).stroke({ color: LINE, width: 0.05, alpha: 0.6 });
+    g.ellipse(0, 0.18, R * 0.62, R * 0.32).fill(WELL_WATER);
+    g.ellipse(-0.12, 0.12, R * 0.3, R * 0.12).fill({ color: 0x6fa8c8, alpha: 0.35 });
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      g.roundRect(Math.cos(a) * R * 0.8 - 0.1, 0.2 + Math.sin(a) * R * 0.43 - 0.07, 0.2, 0.14, 0.04).fill({
+        color: i % 2 ? STONE_LIGHT : STONE,
+        alpha: 0.9,
+      });
+    }
+    // Frame and bucket.
+    g.rect(-R * 0.75, -1.1, 0.1, 1.3).fill(STAKE);
+    g.rect(R * 0.65, -1.1, 0.1, 1.3).fill(STAKE);
+    g.rect(-R * 0.8, -1.15, R * 1.65, 0.1).fill(STAKE);
+    g.moveTo(0, -1.05).lineTo(0, -0.35).stroke({ color: 0xc8b088, width: 0.03 });
+    g.roundRect(-0.14, -0.4, 0.28, 0.26, 0.05).fill(0x7a5230).stroke({ color: LINE, width: 0.03 });
+  }
+
+  /** An open shed: a roof on posts over a bench, a chopping block and cut timber. */
+  private drawWorkshop(g: Graphics, R: number): void {
+    const w = R * 1.8;
+    g.rect(-w / 2, -0.1, w, 0.9).fill({ color: 0x5e4a32, alpha: 0.7 });
+    for (const x of [-w / 2 + 0.1, 0, w / 2 - 0.1]) g.rect(x - 0.06, -0.6, 0.12, 1.2).fill(STAKE);
+    // Bench, block and axe.
+    g.rect(-w / 2 + 0.3, 0.3, 1.1, 0.18).fill(0x8a5e32).stroke({ color: LINE, width: 0.03 });
+    g.ellipse(w / 2 - 0.6, 0.55, 0.28, 0.14).fill(0x6a4424);
+    g.rect(w / 2 - 0.62, 0.15, 0.05, 0.4).fill(0x9a7040);
+    g.poly([w / 2 - 0.62, 0.15, w / 2 - 0.4, 0.12, w / 2 - 0.42, 0.28]).fill(0x9aa4ad);
+    // Timber stack.
+    for (let i = 0; i < 3; i++) {
+      g.roundRect(-w / 2 - 0.2, 0.7 - i * 0.14, 1.2, 0.14, 0.07).fill(0x8a5e32).stroke({ color: LINE, width: 0.02, alpha: 0.6 });
+    }
+    // Lean-to roof.
+    g.poly([-w / 2 - 0.3, -0.35, w / 2 + 0.3, -0.35, w / 2 + 0.15, -1.1, -w / 2 - 0.15, -1.1]).fill(THATCH).stroke({ color: LINE, width: 0.05, alpha: 0.6 });
+    for (let i = 1; i < 10; i++) {
+      const x = -w / 2 - 0.2 + ((w + 0.4) * i) / 10;
+      g.moveTo(x, -1.08).lineTo(x + 0.05, -0.38).stroke({ color: i % 2 ? THATCH_DARK : THATCH_LIGHT, width: 0.03, alpha: 0.4 });
+    }
+  }
+
+  /** A length of sharpened stakes along a low bank. */
+  private drawPalisade(g: Graphics, R: number, progress: number): void {
+    const count = 7;
+    const shown = Math.max(1, Math.round(count * Math.min(1, progress + 0.15)));
+    g.ellipse(0, 0.35, R * 1.25, 0.3).fill({ color: 0x6a5238, alpha: 0.7 });
+    for (let i = 0; i < shown; i++) {
+      const x = (i - (count - 1) / 2) * (R * 0.34);
+      const tall = 1.25 + ((i * 37) % 5) * 0.06;
+      g.poly([x - 0.12, 0.35, x + 0.12, 0.35, x + 0.12, 0.35 - tall, x, 0.35 - tall - 0.22, x - 0.12, 0.35 - tall])
+        .fill(i % 2 ? STAKE : 0x6e4c2a)
+        .stroke({ color: LINE, width: 0.03, alpha: 0.6 });
+    }
+    if (progress >= 1) g.moveTo(-R * 1.15, -0.35).lineTo(R * 1.15, -0.35).stroke({ color: 0x3a2814, width: 0.06 });
+  }
+
+  /** Standing stones in a ring around a small fire. */
+  private drawShrine(g: Graphics, R: number): void {
+    g.ellipse(0, 0.2, R * 1.05, R * 0.55).fill({ color: 0x6a6258, alpha: 0.35 });
+    const stones = 7;
+    for (const front of [false, true]) {
+      for (let i = 0; i < stones; i++) {
+        const a = (i / stones) * Math.PI * 2 + 0.3;
+        if (Math.sin(a) > 0 !== front) continue;
+        const x = Math.cos(a) * R * 0.9;
+        const y = 0.2 + Math.sin(a) * R * 0.48;
+        const h = 0.8 + ((i * 13) % 4) * 0.12;
+        g.roundRect(x - 0.16, y - h, 0.32, h, 0.1).fill(i % 2 ? STONE : STONE_LIGHT).stroke({ color: LINE, width: 0.03, alpha: 0.6 });
+      }
+      if (!front) {
+        g.ellipse(0, 0.2, 0.3, 0.15).fill(0x3a2a1a);
+        g.ellipse(0, 0.05, 0.14, 0.26).fill({ color: 0xff9a2e, alpha: 0.9 });
+        g.ellipse(0, 0.1, 0.07, 0.14).fill({ color: 0xffe27a, alpha: 0.95 });
+      }
+    }
   }
 
   private drawConstruction(g: Graphics, R: number, progress: number): void {

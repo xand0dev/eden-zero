@@ -23,7 +23,11 @@ export type GodCommand =
   | { kind: 'moveHuman'; id: number; x: number; y: number }
   | { kind: 'temperature'; offset: number }
   | { kind: 'timeOfDay'; phase: number }
-  | { kind: 'editGenome'; id: number; key: string; value: number };
+  | { kind: 'editGenome'; id: number; key: string; value: number }
+  | { kind: 'rain'; x: number; y: number }
+  | { kind: 'bless'; id: number }
+  | { kind: 'rewardPulse'; id: number }
+  | { kind: 'painPulse'; id: number };
 
 export type GodCommandKind = GodCommand['kind'];
 
@@ -32,6 +36,13 @@ export interface WorldConfig {
   initialHumans: number;
   initialPredators: number;
   plantDensity: number;
+  /** campaign (default in the UI), sandbox, challenge or daily. */
+  mode?: 'campaign' | 'sandbox' | 'challenge' | 'daily';
+  charter?: string[];
+  biome?: string;
+  /** Genomes from the vault for the first founders. */
+  founderGenomes?: import('../simulation/genetics/genome').Genome[];
+  challengeId?: string;
 }
 
 /** -1 means MAX (run as fast as possible), 0 means paused. */
@@ -49,6 +60,9 @@ export type MainToWorker =
   | { type: 'requestGenealogy' }
   | { type: 'serialize' }
   | { type: 'restore'; payload: string }
+  | { type: 'requestChronicle' }
+  | { type: 'requestAtlasWorld' }
+  | { type: 'requestBrainPair'; a: number; b: number }
   | { type: 'setSpeedPreset'; preset: number };
 
 export type WorkerToMain =
@@ -71,6 +85,9 @@ export type WorkerToMain =
       structures: WorldSnapshot['structures'];
       fields: WorldSnapshot['fields'];
       canals: WorldSnapshot['canals'];
+      game: WorldSnapshot['game'];
+      /** Worn-trail wear per tile, one byte each; sent every few seconds, else null. */
+      trails: Uint8Array | null;
       metrics: WorldSnapshot['metrics'];
       paused: boolean;
       speed: number;
@@ -80,5 +97,8 @@ export type WorkerToMain =
   | { type: 'explain'; id: number; explain: ExplanationView | null }
   | { type: 'genealogy'; forest: TreeNode[] }
   | { type: 'serialized'; payload: string }
+  | { type: 'godResult'; ok: boolean; message: string; kind: string }
+  | { type: 'chronicle'; entries: import('./types').ChronicleView[] }
+  | { type: 'brainPair'; a: BrainView | null; b: BrainView | null }
   | { type: 'restored'; ok: boolean; message?: string }
   | { type: 'error'; message: string };

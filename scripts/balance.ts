@@ -1,3 +1,4 @@
+import { applyTuning } from '../src/simulation/game/tuning';
 /**
  * Multi-seed balance harness.
  *
@@ -40,6 +41,8 @@ interface Args extends RunConfig {
    * it would otherwise dominate a batch's wall time.
    */
   stopAbove: number;
+  /** JSON overrides for the game layer's balance knobs (see game/tuning.ts). */
+  tune: string;
 }
 
 function parseArgs(): Args {
@@ -56,6 +59,7 @@ function parseArgs(): Args {
     json: argv.includes('--json'),
     sampleEvery: Number(get('sample-every', '6000')),
     stopAbove: Number(get('stop-above', '0')),
+    tune: get('tune', ''),
   };
 }
 
@@ -176,6 +180,7 @@ function printJson(rows: BalanceRow[], args: Args): void {
       humans: args.humans,
       sampleEvery: args.sampleEvery,
       stopAbove: args.stopAbove,
+      tune: args.tune ? (JSON.parse(args.tune) as Record<string, number>) : {},
     },
     notes: [
       'fields is a lifetime count: the world never removes a field. sownFields, ripeFields and moistFields are current states.',
@@ -193,6 +198,7 @@ function printJson(rows: BalanceRow[], args: Args): void {
 
 function main(): void {
   const args = parseArgs();
+  if (args.tune) applyTuning(JSON.parse(args.tune) as Record<string, number>);
   if (!args.json) {
     const hours = (args.ticks * DT) / 3600;
     console.log(
