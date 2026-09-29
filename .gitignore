@@ -16,3 +16,7 @@ vite.config.ts.timestamp-*
 # Assembled GitHub Pages site and set-aside builds (scripts/build-site.sh).
 _site
 dist.old.*
+
+# Private working notes: never published.
+docs/CLAUDE_OPUS_5_5_PROMPT.md
+docs/OPENCODE_HANDOFF.md
