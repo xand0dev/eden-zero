@@ -165,8 +165,10 @@ export interface AtlasSubject {
   /** Change since birth of innate reflex k. */
   innateDrift(k: number): number;
   maxInnateDrift: number;
-  /** A reflex born at strength 1.2 or more now pulls the other way. */
+  /** A driving reflex born at strength 1.2 or more now pulls the other way. */
   strongReflexReversed: boolean;
+  /** Current weight of innate reflex k. */
+  innateWeight(k: number): number;
   weightDrift: number;
   /** Tick of the current world. */
   tick: number;
@@ -196,6 +198,7 @@ const recentRegions = (log: BehaviourLog, tick: number, days: number): number =>
   log.regions.filter((t) => t >= 0 && tick - t <= days * TICKS_PER_DAY).length;
 
 const FLEE = innatePriorIndex(S.threatFront, MOTOR_START + M.moveBack);
+const HUNGER_TEND = innatePriorIndex(S.hunger, MOTOR_START + M.tend);
 
 export const ATLAS: AtlasEntry[] = [
   // --- food and water ------------------------------------------------------
@@ -592,10 +595,21 @@ export const ATLAS: AtlasEntry[] = [
     name: 'Relearned',
     section: 'mind',
     rarity: 'legendary',
-    description: 'Lifetime learning has turned one of the strongest innate reflexes around: it now pulls the other way.',
-    criterion: 'An innate reflex born at strength 1.2 or more has reversed its sign (and is at least 0.2 the other way).',
+    description: 'Lifetime learning has turned one of the strongest driving reflexes around — to drink, eat, flee, rest — so that it now pulls the other way.',
+    criterion: 'An excitatory innate reflex born at 1.2 or more is now −0.2 or below.',
     epithet: 'the Changed',
     test: (_l, s) => s.strongReflexReversed,
+  },
+  {
+    id: 'learned-reaping',
+    name: 'Learned to reap',
+    section: 'mind',
+    rarity: 'uncommon',
+    description:
+      'Born with hunger holding back farm work, has learned the opposite: hunger now sends them to bring in the crop.',
+    criterion: 'The innate "hunger suppresses reaping" synapse (−1.6 at birth) is now +0.2 or more.',
+    epithet: 'the Reaper',
+    test: (_l, s) => HUNGER_TEND >= 0 && s.innateWeight(HUNGER_TEND) >= 0.2,
   },
   {
     id: 'fearless',

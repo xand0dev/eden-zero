@@ -1847,6 +1847,7 @@ export class World implements SimWorld {
       mode: this.options.mode ?? 'sandbox',
       biome: this.options.biome ?? 'valley',
       charter: this.options.charter ?? [],
+      challengeId: this.options.challengeId,
       year: calendar.year,
       season: calendar.season,
       seasonPhase: calendar.seasonPhase,
@@ -2413,6 +2414,7 @@ export class World implements SimWorld {
       innateDrift: (k) => brain.innateDrift(k),
       maxInnateDrift: brain.maxInnateDrift().drift,
       strongReflexReversed: brain.strongReflexReversed(1.2, 0.2),
+      innateWeight: (k) => brain.innateWeight(k),
       weightDrift: brain.weightDrift(),
       tick: this.tick,
     };

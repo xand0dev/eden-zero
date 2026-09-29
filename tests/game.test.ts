@@ -274,6 +274,7 @@ describe('atlas', () => {
     innateDrift: () => 0,
     maxInnateDrift: 0,
     strongReflexReversed: false,
+    innateWeight: () => 0,
     weightDrift: 0.01,
     tick: 0,
     ...overrides,

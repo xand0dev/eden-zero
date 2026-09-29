@@ -398,6 +398,18 @@ export class SimClient {
     speed: number;
     metrics: DevMetrics;
   }): void {
+    // A restored world brings its own seed and mode; keep the config honest so
+    // saves, challenges and the profile name the right world.
+    if (snapshot.stats && snapshot.stats.seed !== this.state.config.seed) {
+      const game = snapshot.game;
+      this.state.config = {
+        ...this.state.config,
+        seed: snapshot.stats.seed,
+        ...(game
+          ? { mode: game.mode as WorldConfig['mode'], charter: game.charter, biome: game.biome, challengeId: game.challengeId }
+          : {}),
+      };
+    }
     if (snapshot.game) {
       const fresh = snapshot.game.chronicle;
       if (fresh.length > 0) {

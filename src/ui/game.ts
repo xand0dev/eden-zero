@@ -163,6 +163,18 @@ class GameController {
     }
     for (const entry of game.chronicle) this.onChronicle(entry, game);
 
+    // A world loaded from a save carries behaviours seen before this session;
+    // they belong in the atlas too.
+    const profileAtlas = loadProfile().atlas;
+    const unrecorded = game.discovered.filter((id) => !profileAtlas[id]);
+    if (unrecorded.length > 0) {
+      const seed = sim.getSnapshot().config.seed;
+      updateProfile((p) => {
+        for (const id of unrecorded) p.atlas[id] = { at: new Date().toISOString(), world: seed, name: 'an earlier life' };
+      });
+      this.refreshProfile();
+    }
+
     if (game.extinct && !this.summarised && sim.getSnapshot().tick > 100) this.finish('extinct');
     if (game.era >= 4 && !this.summarised && game.mode === 'campaign') this.finish('city');
 

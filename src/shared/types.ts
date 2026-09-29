@@ -205,6 +205,7 @@ export interface GameView {
   mode: string;
   biome: string;
   charter: string[];
+  challengeId?: string;
   year: number;
   season: number;
   seasonPhase: number;

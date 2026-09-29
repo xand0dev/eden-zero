@@ -518,3 +518,23 @@ Slower thirst did not reduce thirst deaths and lost two worlds; outcomes are ver
 seed-sensitive at this length. Shipped: `consumeGate` 0.06, everything else at its
 neutral value. Dehydration is still the leading cause of death — the steering
 saturation above is the open problem, and the next thing to fix in the brain.
+
+### Confirmation run with the shipped defaults (8 seeds × 200 000 ticks, 2 predators)
+
+| seed | outcome | pop | gen | era | crises (pop before → after) | built |
+|---|---|---|---|---|---|---|
+| eden | thriving | 152 | 5 | III | drought 100→99 | 25 huts, 3 granaries |
+| lumen | thriving | 117 | 5 | III | drought 26→27, flood 104→106 | 53 huts, 9 granaries, 4 wells |
+| tessera | thriving | 33 | 5 | III | drought 22→17, drought 32→29 | 50 huts, 9 granaries, 2 wells |
+| vela | thriving | 23 | 4 | II | drought 20→18 | 36 huts, 7 granaries |
+| auriga | runaway (251) | 251 | 5 | III | drought 35→40, predators 160→183 | 77 huts, 11 granaries, 3 wells |
+| solace | declining | 3 | 3 | II | drought 15→7, drought 4→5 | 24 huts |
+| orion | extinct | 0 | 2 | II | harsh winter 9→6 | 20 huts |
+| kepler | extinct | 0 | 2 | I | — | 18 huts |
+
+Deaths: dehydration 506, starvation 201, old age 25, predation 5, exposure 4.
+Against the pre-game-layer baseline (2 extinct, 1 declining, 1 runaway on the same
+seeds) the extinction count is unchanged, but four worlds now reach the village era
+with granaries, wells and weathered crises. Still open: no carrying capacity bites
+below the hard cap (auriga), small worlds die after one bad winter, and dehydration
+is the leading cause of death (the steering saturation above).

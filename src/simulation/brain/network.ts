@@ -998,15 +998,24 @@ export class Brain {
     return this.w[s] - this.initialWeights[s];
   }
 
-  /** Whether a reflex born at |w| >= `strength` now has the opposite sign, by at least `margin`. */
+  /**
+   * Whether a *driving* reflex born at w >= `strength` now pulls the other way,
+   * by at least `margin`. Only excitatory reflexes count: the strong inhibitory
+   * ones (hunger suppressing farm work) turn around routinely — that is learning
+   * to work when hungry, and the atlas has its own entry for it.
+   */
   strongReflexReversed(strength: number, margin: number): boolean {
     for (let k = 0; k < INNATE_PRIORS.length; k++) {
       const s = this.innateStart + k;
       const w0 = this.initialWeights[s];
-      const w = this.w[s];
-      if (Math.abs(w0) >= strength && Math.sign(w) !== Math.sign(w0) && Math.abs(w) >= margin) return true;
+      if (w0 >= strength && this.w[s] <= -margin) return true;
     }
     return false;
+  }
+
+  /** Current weight of innate reflex `k`. */
+  innateWeight(k: number): number {
+    return this.w[this.innateStart + k];
   }
 
   /** Largest change since birth of any innate reflex, and which one. */
