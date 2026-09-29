@@ -31,7 +31,9 @@ ENV PORT=8080
 # is a deliberate trade for a single-stage TypeScript server: the alternative is
 # a separate compile step and a second tsconfig, and the image is still small.
 COPY package.json package-lock.json* ./
-RUN npm ci && npm cache clean --force
+# --include=dev: NODE_ENV=production above would otherwise make npm skip the
+# devDependencies, and the server runs through tsx.
+RUN npm ci --include=dev && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
 COPY server ./server
