@@ -538,3 +538,12 @@ seeds) the extinction count is unchanged, but four worlds now reach the village 
 with granaries, wells and weathered crises. Still open: no carrying capacity bites
 below the hard cap (auriga), small worlds die after one bad winter, and dehydration
 is the leading cause of death (the steering saturation above).
+
+### Atlas, second wave
+
+Eighteen more entries on counters the atlas already keeps (lumberjack, master
+farmer, the builders of each new structure kind, long walker, trail walker, twice
+bitten, crisis veteran, weathered, elder, centenarian, restless, sound sleeper,
+gloomy, fed by the gods, canal digger): 65 entries — 14 common, 21 uncommon, 22
+rare, 8 legendary. The codex gains atlas milestones at 50 and 60 (153 entries; an
+earlier note said 152 where the real count was 151).

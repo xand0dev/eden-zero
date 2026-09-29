@@ -83,11 +83,11 @@ full design — loops, numbers, the hundred-hour breakdown — is
   wildfire, eclipse — each with a day's warning, harder as the settlement grows.
 - **Favour.** Interventions cost it; it grows when the world thrives. New tools:
   rain, bless, and reward/pain **pulses** into one brain's learning signal.
-- **The atlas** of 45 behaviours nobody wrote — Provider, Night Watch, Irrigator,
+- **The atlas** of 65 behaviours nobody wrote — Provider, Night Watch, Irrigator,
   Mourner, Learned to reap… — detected by an observational classifier with a
   stated criterion. Epithets follow people into the **chronicle**, whose
   obituaries are built from recorded facts only.
-- **Metaprogress** that unlocks questions, not power: a 152-entry codex, 30
+- **Metaprogress** that unlocks questions, not power: a 153-entry codex, 30
   challenges with medals, a genome vault (share genomes as strings), replays that
   are just the seed plus the command log.
 
