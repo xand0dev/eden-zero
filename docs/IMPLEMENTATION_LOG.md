@@ -547,3 +547,19 @@ bitten, crisis veteran, weathered, elder, centenarian, restless, sound sleeper,
 gloomy, fed by the gods, canal digger): 65 entries — 14 common, 21 uncommon, 22
 rare, 8 legendary. The codex gains atlas milestones at 50 and 60 (153 entries; an
 earlier note said 152 where the real count was 151).
+
+### Steering switches, measured properly (8 seeds × 100 000 ticks, worlds wake at 0.3)
+
+A traced person with both switches on did steer to water and drink (10 tiles →
+2, thirst 77 → 2), so the question was only whether it helps a population.
+
+| variant | extinct | thriving | declining | |
+|---|---|---|---|---|
+| k0: shipped defaults | 1 | 5 | 2 | kepler extinct; vela, solace declining |
+| k1: `senseNormalize` + `pushPull` | 3 | 2 | 3 | vela, orion, auriga extinct |
+
+It hurts. A brain whose steering was learned against clipped signals does worse
+when the signals stop clipping; changing the read-out would need the priors
+re-tuned with it. Both switches stay off. Note: the 200 000-tick table above was
+measured before worlds started waking at dawn (commit dd35f5d), which changes every
+history; the 100 000-tick k0 row is the current reference.
