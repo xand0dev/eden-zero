@@ -26,6 +26,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=8080
+# Inside a container the server must listen on every interface: bound to the
+# default 127.0.0.1 it is unreachable through the published port.
+ENV HOST=0.0.0.0
 
 # `tsx` lives in devDependencies, so the runtime install keeps dev packages. That
 # is a deliberate trade for a single-stage TypeScript server: the alternative is
