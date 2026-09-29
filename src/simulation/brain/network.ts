@@ -945,6 +945,22 @@ export class Brain {
     }
   }
 
+  /**
+   * Net command of an antagonist pair (e.g. turn-right against turn-left), in
+   * -1..1, from the two motor neurons' drives rather than from their clamped
+   * commands.
+   *
+   * Measured (solace): a thirsty person with water sensed hard to the right had
+   * turn-right and turn-left both at 1.00 — both drives far above the pool's
+   * baseline — so the clamped difference was zero and they walked straight past
+   * the river they were dying beside. Antagonist muscles pull against each
+   * other; the joint moves by the difference of their activations, and that
+   * difference survives when both are strongly driven.
+   */
+  pairCommand(agonist: number, antagonist: number): number {
+    return clamp((this.motorDrive[agonist] - this.motorDrive[antagonist]) * MOTOR_READOUT_GAIN, -1, 1);
+  }
+
   /** Index of the strongest motor output (0..11). */
   winningMotor(): number {
     let best = 0;

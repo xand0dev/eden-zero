@@ -4,6 +4,7 @@ import { M, MOTOR_COUNT, S, SENSORY_COUNT } from '../brain/channels';
 import type { Genome } from '../genetics/genome';
 import { mutate } from '../genetics/evolution';
 import type { SimWorld } from './context';
+import { TUNING } from '../game/tuning';
 import { EntityKind, LifeStage, Sex } from '../../shared/types';
 import { AGE_ADULT_END, AGE_CHILD_END, BIO_YEAR_SECONDS, AGE_MAX } from '../../shared/constants';
 import { isFreshAt, tileAt, Tile } from '../environment/terrain';
@@ -343,8 +344,13 @@ export class Predator {
     if (!this.alive) return;
     const m = this.motor;
 
-    const forward = clamp(m[M.moveFwd] - m[M.moveBack], -1, 1);
-    const turn = clamp(m[M.turnRight] - m[M.turnLeft], -1, 1);
+    const pushPull = TUNING.pushPull > 0;
+    const forward = pushPull
+      ? this.brain.pairCommand(M.moveFwd, M.moveBack)
+      : clamp(m[M.moveFwd] - m[M.moveBack], -1, 1);
+    const turn = pushPull
+      ? this.brain.pairCommand(M.turnRight, M.turnLeft)
+      : clamp(m[M.turnRight] - m[M.turnLeft], -1, 1);
     const sprint = 1 + 0.7 * m[M.sprint];
 
     this.resting = m[M.rest] > 0.5;

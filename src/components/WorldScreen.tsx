@@ -164,8 +164,17 @@ export function WorldScreen({
       const detail = (event as CustomEvent<{ x: number; y: number }>).detail;
       rendererRef.current?.focusOn(detail.x, detail.y);
     };
+    const onFollow = (event: Event): void => {
+      const id = (event as CustomEvent<{ id: number }>).detail.id;
+      game.setDirector(false);
+      rendererRef.current?.setFollow(id);
+    };
     window.addEventListener('eden:focus', onFocus);
-    return () => window.removeEventListener('eden:focus', onFocus);
+    window.addEventListener('eden:follow', onFollow);
+    return () => {
+      window.removeEventListener('eden:focus', onFocus);
+      window.removeEventListener('eden:follow', onFollow);
+    };
   }, []);
 
   // --- god tool dispatch --------------------------------------------------

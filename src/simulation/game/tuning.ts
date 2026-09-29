@@ -32,9 +32,14 @@ export const TUNING = {
   innatePlasticity: 1,
   /**
    * Motor command above which eating and drinking happen (when food or water is
-   * actually within reach and there is a need).
+   * actually within reach and there is a need). Was 0.25; 0.06 chosen from the
+   * 8-seed sweeps in docs/IMPLEMENTATION_LOG.md (0 extinct, 5 thriving of 8).
    */
-  consumeGate: 0.25,
+  consumeGate: 0.06,
+  /** 1: locomotion from antagonist drive differences (Brain.pairCommand); 0: from clamped commands. */
+  pushPull: 0,
+  /** 1: divisive normalisation of each directional group, so saturation keeps the bearing. */
+  senseNormalize: 0,
 };
 
 export type Tuning = typeof TUNING;

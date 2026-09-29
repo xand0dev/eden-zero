@@ -482,3 +482,39 @@ at 30 000 ticks is 1.7–2.3 — so the atlas's legendary "Relearned" was earned
 everyone. It now requires a reflex born at |w| ≥ 1.2 to have reversed sign.
 
 `npm run build`: pass. `vitest` (1 thread): 202/202 pass.
+
+### Sweep after the reflex fix (8 seeds × 100 000 ticks, 2 predators)
+
+| variant | extinct | thriving | stable | declining | deaths (dehydration) |
+|---|---|---|---|---|---|
+| A: old gate 0.25, reflex bug (before the fix) | 1 | 3 | 0 | 4 | 163 (83) |
+| g1: gate 0.06 | 0 | 4 | 1 | 3 | 239 (171) |
+| g2: gate 0.06 + social range 2.4 (E5) | 1 | 4 | 1 | 2 | — (partial, stopped) |
+
+g1 grew more (births 375 vs 191) but dehydration still dominates. E5 did not help
+and is off by default (`TUNING.socialRange = 1`).
+
+`thirst-probe.ts` / `steer-probe.ts` on the remaining deaths: people now die 5–11
+tiles from water with the water channels *saturated* (front 1.00 and right 1.00 at
+once) and both turn motors at 1.00, so the clamped difference that steers them is
+zero. Two fixes were tried behind switches and measured on solace and kepler
+(40 000 ticks): divisive normalisation of each direction group
+(`TUNING.senseNormalize`) and antagonist push-pull locomotion from motor drives
+(`Brain.pairCommand`, `TUNING.pushPull`). Neither changed dehydration deaths beyond
+single-seed noise (solace 9 → 10/11, kepler 16 → 13), so both stay off. Recorded
+here so the next attempt starts from the measurement, not from the idea.
+
+Crisis severity now depends on era (0.6 camp → 1.25 city): with a flat severity of
+1 a camp drought took villages from 20 to 10 and 15 to 5.
+
+### Choosing defaults (8 seeds × 100 000 ticks, severity by era)
+
+| variant | extinct | thriving | stable | declining | births | dehydration |
+|---|---|---|---|---|---|---|
+| h1: gate 0.06 | 0 | 5 | 1 | 2 | 386 | 171 |
+| h2: gate 0.06, thirst ×0.8 | 2 | 4 | 0 | 2 | 377 | 163 |
+
+Slower thirst did not reduce thirst deaths and lost two worlds; outcomes are very
+seed-sensitive at this length. Shipped: `consumeGate` 0.06, everything else at its
+neutral value. Dehydration is still the leading cause of death — the steering
+saturation above is the open problem, and the next thing to fix in the brain.

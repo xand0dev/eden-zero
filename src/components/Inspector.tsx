@@ -41,6 +41,14 @@ export function Inspector(): JSX.Element {
             </span>
           </div>
         </div>
+        {detail.epithet ? <div className="epithet">{detail.name} {detail.epithet}</div> : null}
+        <button
+          className="wide follow-life"
+          onClick={() => window.dispatchEvent(new CustomEvent('eden:follow', { detail: { id: detail.id } }))}
+          title="Keep the camera on this person (F)"
+        >
+          Follow this life
+        </button>
         <div className="row">
           <span>ID</span>
           <b>#{detail.id}</b>

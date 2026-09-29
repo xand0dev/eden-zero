@@ -817,14 +817,8 @@ export class Human {
     // comfortable one. This is homeostatic gain control on the sensory pathway.
     const urgency = 1 + 1.6 * Math.max(0, (Math.max(hunger01, thirst01) - 0.6) / 0.4);
     const directionalGain = 2.6 * urgency;
-    s[S.foodFront] = clamp01(food[0] * foodSalience * directionalGain);
-    s[S.foodRight] = clamp01(food[1] * foodSalience * directionalGain);
-    s[S.foodBack] = clamp01(food[2] * foodSalience * directionalGain);
-    s[S.foodLeft] = clamp01(food[3] * foodSalience * directionalGain);
-    s[S.waterFront] = clamp01(this.waterDir[0] * waterSalience * directionalGain);
-    s[S.waterRight] = clamp01(this.waterDir[1] * waterSalience * directionalGain);
-    s[S.waterBack] = clamp01(this.waterDir[2] * waterSalience * directionalGain);
-    s[S.waterLeft] = clamp01(this.waterDir[3] * waterSalience * directionalGain);
+    writeDirection(s, S.foodFront, food, foodSalience * directionalGain);
+    writeDirection(s, S.waterFront, this.waterDir, waterSalience * directionalGain);
     s[S.humanFront] = clamp01(conspecific[0]);
     s[S.humanRight] = clamp01(conspecific[1]);
     s[S.humanBack] = clamp01(conspecific[2]);
@@ -1048,8 +1042,13 @@ export class Human {
       return;
     }
 
-    const forward = clamp(m[M.moveFwd] - m[M.moveBack], -1, 1);
-    const turn = clamp(m[M.turnRight] - m[M.turnLeft], -1, 1);
+    const pushPull = TUNING.pushPull > 0;
+    const forward = pushPull
+      ? this.brain.pairCommand(M.moveFwd, M.moveBack)
+      : clamp(m[M.moveFwd] - m[M.moveBack], -1, 1);
+    const turn = pushPull
+      ? this.brain.pairCommand(M.turnRight, M.turnLeft)
+      : clamp(m[M.turnRight] - m[M.turnLeft], -1, 1);
     const sprint = 1 + 0.8 * m[M.sprint];
 
     this.resting = m[M.rest] > 0.45;
@@ -1823,6 +1822,23 @@ export class Human {
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Write a four-channel direction group [front, right, back, left] at `gain`.
+ *
+ * With `TUNING.senseNormalize`, a group whose strongest channel would exceed 1
+ * is divided by that channel instead of clipped. Measured (solace): a thirsty
+ * person's water group read front 1.00 *and* right 1.00 — the urgency gain had
+ * clipped both — so the bearing was gone before it reached the brain.
+ * Divisive normalisation is what sensory systems do to stay in range without
+ * losing ratios.
+ */
+function writeDirection(s: Float32Array, start: number, dir: Float32Array, gain: number): void {
+  let peak = 0;
+  for (let i = 0; i < 4; i++) peak = Math.max(peak, dir[i] * gain);
+  const scale = TUNING.senseNormalize > 0 && peak > 1 ? gain / peak : gain;
+  for (let i = 0; i < 4; i++) s[start + i] = clamp01(dir[i] * scale);
+}
 
 /**
  * Graded egocentric encoding of a direction vector.
