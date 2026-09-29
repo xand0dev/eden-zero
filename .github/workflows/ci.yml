@@ -9,7 +9,9 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The construction test alone runs a village for two simulated hours; the
+    # suite plus the acceptance scenario needs more than the old 20 minutes.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 

@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>EDEN//0 — an artificial life observatory</title>
+<meta name="description" content="People with 341-neuron spiking brains and no script. Write the laws of their world, intervene sparingly, and try to understand what comes of it." />
+<meta property="og:title" content="EDEN//0 — an artificial life observatory" />
+<meta property="og:description" content="Nothing in this world is scripted. Every step is the output of a spiking brain." />
+<meta property="og:image" content="media/screenshots/09-village-era.jpg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #04080d;
+    --bg2: #0a1119;
+    --line: rgba(255, 255, 255, 0.08);
+    --text: #dfe7ef;
+    --dim: #8b9aa9;
+    --faint: #5c6b79;
+    --accent: #ff8a3d;
+    --accent2: #ffb07a;
+    --cyan: #5ac8d8;
+    --ok: #6fd08a;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent2); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; }
+
+  /* hero */
+  .hero { position: relative; min-height: min(760px, 92vh); display: flex; align-items: flex-end; overflow: hidden; border-bottom: 1px solid var(--line); }
+  .hero video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.85; }
+  .hero::after { content: ''; position: absolute; inset: 0; background:
+      linear-gradient(180deg, rgba(4,8,13,.55) 0%, rgba(4,8,13,.1) 30%, rgba(4,8,13,.55) 65%, rgba(4,8,13,.97) 100%),
+      linear-gradient(90deg, rgba(4,8,13,.8) 0%, rgba(4,8,13,0) 60%); }
+  .hero .wrap { position: relative; z-index: 1; padding-block: 64px 56px; width: 100%; }
+  .kicker { font: 500 12px/1 var(--mono); letter-spacing: .38em; text-transform: uppercase; color: var(--accent2); }
+  h1 { font-weight: 250; font-size: clamp(56px, 11vw, 132px); letter-spacing: .14em; line-height: 1; margin: 18px 0 0; }
+  h1 span { color: var(--accent); font-weight: 500; }
+  .tagline { font-size: clamp(19px, 2.4vw, 24px); font-weight: 300; margin: 16px 0 0; color: #eef3f7; }
+  .lede { max-width: 620px; color: #b7c3ce; margin: 14px 0 0; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; padding: 14px 22px; border-radius: 11px; font: 600 13px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; text-decoration: none; border: 1px solid var(--line); color: var(--text); background: rgba(4,8,13,.5); backdrop-filter: blur(8px); }
+  .btn.primary { background: linear-gradient(180deg, #ff9a52, #e8702a); border-color: #ffb07a; color: #1a0d04; box-shadow: 0 10px 30px rgba(255,138,61,.35); }
+  .btn:hover { filter: brightness(1.08); }
+  .note { font-size: 13px; color: var(--faint); margin-top: 12px; }
+
+  section { padding-block: 72px; border-bottom: 1px solid var(--line); }
+  h2 { font-weight: 300; font-size: clamp(28px, 4vw, 40px); margin: 10px 0 14px; text-wrap: balance; letter-spacing: -.005em; }
+  .intro { max-width: 700px; color: var(--dim); }
+
+  .facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 30px; }
+  .fact { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); }
+  .fact b { display: block; font: 500 26px/1.1 var(--mono); color: var(--accent2); font-variant-numeric: tabular-nums; }
+  .fact span { display: block; font-size: 13px; line-height: 1.45; color: var(--dim); margin-top: 4px; }
+
+  .features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; margin-top: 34px; }
+  .feature { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--bg2); }
+  .feature video, .feature img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+  .feature div { padding: 16px 18px 18px; }
+  .feature h3 { margin: 0 0 6px; font-weight: 500; font-size: 18px; }
+  .feature p { margin: 0; color: var(--dim); font-size: 14.5px; }
+
+  .finding { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 36px; align-items: center; }
+  .finding blockquote { margin: 0; padding: 22px 24px; border-left: 3px solid var(--accent); background: var(--bg2); border-radius: 0 12px 12px 0; }
+  .finding .num { font-family: var(--mono); color: var(--accent2); }
+  .finding p { color: var(--dim); }
+
+  .videos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; margin-top: 30px; }
+  .videos figure { margin: 0; }
+  .videos video { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: #000; }
+  figcaption { font-size: 13.5px; color: var(--dim); margin-top: 8px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 18px; }
+  .table { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  th { font: 500 11px/1.2 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); background: var(--bg2); }
+  tr:last-child td { border-bottom: 0; }
+  .ok { color: var(--ok); } .bad { color: #ef6464; } .mid { color: #f0c050; }
+
+  .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin-top: 26px; }
+  .cols h3 { font: 500 12px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--accent2); margin: 0 0 12px; }
+  .cols ul { margin: 0; padding-left: 18px; color: var(--dim); font-size: 14.5px; }
+  .cols li { margin: 4px 0; }
+  code { font: .88em var(--mono); color: var(--cyan); }
+
+  footer { padding-block: 40px 60px; color: var(--faint); font-size: 13px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 28px; justify-content: space-between; }
+
+  @media (max-width: 860px) {
+    .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .features, .videos, .finding, .cols { grid-template-columns: minmax(0, 1fr); }
+    section { padding-block: 52px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <video src="media/loops/village.mp4" autoplay muted loop playsinline poster="media/screenshots/09-village-era.jpg" aria-hidden="true"></video>
+  <div class="wrap">
+    <div class="kicker">An artificial life observatory</div>
+    <h1>EDEN<span>//0</span></h1>
+    <p class="tagline">You don’t control life. You define its laws.</p>
+    <p class="lede">People wake beside fresh water with 341-neuron spiking brains, a genome and no instructions. Every step they take — eating, building, farming, digging canals — is the output of their brain. Write the laws of their world, intervene sparingly, and try to understand what comes of it.</p>
+    <div class="cta">
+      <a class="btn primary" href="play/">Play in the browser</a>
+      <a class="btn" href="#videos">Watch the videos</a>
+      <a class="btn" href="https://github.com/xand0dev/eden-zero">Source on GitHub</a>
+    </div>
+    <div class="note">Runs entirely in your browser — no install, no account. Best on a desktop; saves stay on your machine.</div>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="wrap">
+      <div class="kicker">The one rule</div>
+      <h2>Nothing in this world is scripted</h2>
+      <p class="intro">There is no <code>findFood()</code>, no behaviour tree and no state machine. Innate reflexes exist only as ordinary synapses that a lifetime of learning is free to rewrite. What you watch is what the brains, the bodies and the ecology produce — and you can open any brain and see the spikes that just fired.</p>
+      <div class="facts">
+        <div class="fact"><b>341</b><span>spiking neurons per person, 17 motors, 64 senses</span></div>
+        <div class="fact"><b>45</b><span>behaviours in the atlas — none of them written</span></div>
+        <div class="fact"><b>42</b><span>laws to write into a world’s charter</span></div>
+        <div class="fact"><b>152</b><span>codex entries, 30 challenges, a daily world</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="kicker">What you do</div>
+      <h2>Write the laws. Watch. Understand.</h2>
+      <p class="intro">You are an observer with a budget, not a ruler. Favour grows when the world thrives; you spend it on rain, food, a blessing — or a pulse of reward into one brain.</p>
+      <div class="features">
+        <article class="feature">
+          <video src="media/loops/brain.mp4" autoplay muted loop playsinline aria-label="The live brain view"></video>
+          <div><h3>Open any brain</h3><p>Real spikes along real synapses, the reward signal it learns from, and the synapses a life has rewritten — gold where they grew, violet where they faded.</p></div>
+        </article>
+        <article class="feature">
+          <video src="media/loops/winter.mp4" autoplay muted loop playsinline aria-label="Winter over the settlement"></video>
+          <div><h3>Seasons and eras</h3><p>An eight-day year: spring growth, summer thirst, autumn harvest, winter snow. Hearth, camp, village, town, city — read from the world, never unlocked by a button.</p></div>
+        </article>
+        <article class="feature">
+          <video src="media/loops/rain.mp4" autoplay muted loop playsinline aria-label="Calling rain during a crisis warning"></video>
+          <div><h3>Fate, with a day’s warning</h3><p>Drought, harsh winter, predator migration, blight, flood, fever, wildfire, eclipse. Crises change the physics of the world; how a village copes is up to its brains — and to what you do with the warning.</p></div>
+        </article>
+        <article class="feature">
+          <video src="media/loops/atlas.mp4" autoplay muted loop playsinline aria-label="The atlas of behaviours"></video>
+          <div><h3>An atlas of the unwritten</h3><p>An observational classifier names what it sees — the Provider, the Night Watch, the Irrigator, the Mourner — with a stated criterion you can check. Epithets follow people into the chronicle and their obituaries.</p></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap finding">
+      <div>
+        <div class="kicker">Found on the way</div>
+        <h2>The brains were erasing their own reflexes</h2>
+        <p>Thirsty people stood at the shore and did not drink. The measurement: the innate <code>thirst → drink</code> synapse fell from <span class="num">1.80</span> to <span class="num">0.05</span> in ten simulated minutes, in every brain — and turning its plasticity off did not stop it.</p>
+        <p>The cause was homeostatic synaptic scaling: it held each neuron’s total input constant, so as learning grew a motor neuron’s other inputs, the reflex was scaled away with them. Scaling now leaves the reflex arcs alone; over thirty thousand ticks they hold at <span class="num">1.78</span>.</p>
+      </div>
+      <blockquote>“Measure the derived quantity.” Every fix in this project started with a probe that measured what the brain was actually doing — the thirst probe, the drink-weight probe, the steering probe — and the failures stay in the <a href="https://github.com/xand0dev/eden-zero/blob/main/docs/IMPLEMENTATION_LOG.md">implementation log</a>.</blockquote>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="kicker">Measured, not claimed</div>
+      <h2>Eight worlds, 200 000 ticks each</h2>
+      <p class="intro">Same seeds, shipped defaults, two predators, no interventions. The simulation is deterministic, so anyone can rerun these numbers with <code>npm run balance:parallel</code>.</p>
+      <div class="table">
+        <table>
+          <thead><tr><th>World</th><th>Outcome</th><th>People</th><th>Generations</th><th>Era</th><th>Crises</th></tr></thead>
+          <tbody>
+            <tr><td>eden</td><td class="ok">thriving</td><td>152</td><td>5</td><td>III · Village</td><td>drought</td></tr>
+            <tr><td>lumen</td><td class="ok">thriving</td><td>117</td><td>5</td><td>III · Village</td><td>drought, flood</td></tr>
+            <tr><td>tessera</td><td class="ok">thriving</td><td>33</td><td>5</td><td>III · Village</td><td>two droughts</td></tr>
+            <tr><td>vela</td><td class="ok">thriving</td><td>23</td><td>4</td><td>II · Camp</td><td>drought</td></tr>
+            <tr><td>auriga</td><td class="mid">runaway</td><td>251</td><td>5</td><td>III · Village</td><td>drought, predators</td></tr>
+            <tr><td>solace</td><td class="mid">declining</td><td>3</td><td>3</td><td>II · Camp</td><td>two droughts</td></tr>
+            <tr><td>orion</td><td class="bad">extinct</td><td>0</td><td>2</td><td>II · Camp</td><td>harsh winter</td></tr>
+            <tr><td>kepler</td><td class="bad">extinct</td><td>0</td><td>2</td><td>I · Hearth</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Still open: thirst is the leading cause of death (steering saturates when need is high), and nothing yet caps a thriving world below the hard limit.</p>
+    </div>
+  </section>
+
+  <section id="videos">
+    <div class="wrap">
+      <div class="kicker">Videos</div>
+      <h2>See it before you play it</h2>
+      <div class="videos">
+        <figure>
+          <video src="media/demo.mp4" controls preload="metadata" poster="media/screenshots/04-brain.jpg"></video>
+          <figcaption>Demo · 1:09 · English captions. The world, the village, day and night, the live brain.</figcaption>
+        </figure>
+        <figure>
+          <video src="media/game-report-uk.mp4" controls preload="metadata" poster="media/screenshots/09-village-era.jpg"></video>
+          <figcaption>The game layer · 1:36 · Ukrainian captions. Charter, seasons, crises, buildings, chronicle, atlas, neuro-lab.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="kicker">How it is built</div>
+      <h2>A pure, deterministic core</h2>
+      <div class="cols">
+        <div><h3>Simulation</h3><ul><li>Strict TypeScript, no ML library</li><li>Leaky integrate-and-fire network, reward-modulated Hebbian learning from the body’s own physiology</li><li>Same seed + same commands = byte-identical history; a replay is a few hundred bytes</li></ul></div>
+        <div><h3>Observatory</h3><ul><li>React + PixiJS diorama, the world in a Web Worker</li><li>Canvas brain view with real spikes and a porthole into the world</li><li>Saves packed as exact float32, gzip in IndexedDB</li></ul></div>
+        <div><h3>Evidence</h3><ul><li>202 unit and integration tests</li><li>Headless acceptance and multi-seed balance harnesses</li><li>Probes for every claim, in <code>scripts/</code></li></ul></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>EDEN//0 · Lab 42, Programming Practice · MIT licence</span>
+    <span><a href="play/">Play</a> · <a href="https://github.com/xand0dev/eden-zero">GitHub</a> · <a href="https://github.com/xand0dev/eden-zero/blob/main/docs/GAMEPLAY_PLAN.md">Gameplay plan</a> · <a href="https://github.com/xand0dev/eden-zero/blob/main/MANIFESTO.md">Manifesto</a></span>
+  </div>
+</footer>
+</body>
+</html>

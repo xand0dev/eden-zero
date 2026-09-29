@@ -12,3 +12,7 @@ src-tauri/gen
 # Vite writes timestamped config snapshots next to the config file while the
 # dev server is running; they must never be committed.
 vite.config.ts.timestamp-*
+
+# Assembled GitHub Pages site and set-aside builds (scripts/build-site.sh).
+_site
+dist.old.*
