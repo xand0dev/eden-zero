@@ -132,6 +132,6 @@ compound. The same seed meets the same ages; there is no last one.
 
 ## Measured
 
-8 seeds, 100 000 ticks each, after the grid and neurogenesis (commit 7939777):
-7 thriving, 1 stable, 0 extinct — no collapse from the new rules. Details in
+8 seeds × 150 000 ticks with every v3 rule on: 7 thriving, 1 declining,
+0 extinct; three worlds reached era III. Details in
 [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).

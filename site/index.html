@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>EDEN//0 — an artificial life observatory</title>
-<meta name="description" content="People with 341-neuron spiking brains and no script. Write the laws of their world, intervene sparingly, and try to understand what comes of it." />
+<meta name="description" content="People with spiking brains that grow new neurons, no script, and peoples, skills and ages the world generates itself. Write the laws of their world, intervene sparingly, and try to understand what comes of it." />
 <meta property="og:title" content="EDEN//0 — an artificial life observatory" />
 <meta property="og:description" content="Nothing in this world is scripted. Every step is the output of a spiking brain." />
 <meta property="og:image" content="media/screenshots/09-village-era.jpg" />
@@ -100,6 +100,9 @@
     .features, .videos, .finding, .cols { grid-template-columns: minmax(0, 1fr); }
     section { padding-block: 52px; }
   }
+  .rules { margin: 22px 0 0; padding: 0; list-style: none; counter-reset: rule; display: grid; gap: 10px; }
+  .rules li { counter-increment: rule; position: relative; padding: 12px 14px 12px 52px; border-radius: 12px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07); }
+  .rules li::before { content: counter(rule, upper-roman); position: absolute; left: 14px; top: 12px; font-weight: 700; color: var(--accent, #ff8a3d); font-family: ui-monospace, Menlo, monospace; }
 </style>
 </head>
 <body>
@@ -127,11 +130,28 @@
       <h2>Nothing in this world is scripted</h2>
       <p class="intro">There is no <code>findFood()</code>, no behaviour tree and no state machine. Innate reflexes exist only as ordinary synapses that a lifetime of learning is free to rewrite. What you watch is what the brains, the bodies and the ecology produce — and you can open any brain and see the spikes that just fired.</p>
       <div class="facts">
-        <div class="fact"><b>341</b><span>spiking neurons per person, 17 motors, 64 senses</span></div>
-        <div class="fact"><b>65</b><span>behaviours in the atlas — none of them written</span></div>
+        <div class="fact"><b>341+24</b><span>spiking neurons per person — and room to grow 24 more as they live</span></div>
+        <div class="fact"><b>71</b><span>behaviours in the atlas — none of them written</span></div>
         <div class="fact"><b>42</b><span>laws to write into a world’s charter</span></div>
         <div class="fact"><b>153</b><span>codex entries, 30 challenges, a daily world</span></div>
       </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="kicker">v3 · the Evolution update</div>
+      <h2>Seven rules. Everything else grows.</h2>
+      <p class="intro">What used to be written content is now generated while the world runs. Skills, instincts, faces, peoples, the style of their houses and the ages the world passes through come out of seven base rules — and there is no last one of any of them.</p>
+      <ol class="rules">
+        <li><b>Land.</b> The island is a grid: every standing thing owns its cells, nothing overlaps, people walk freely.</li>
+        <li><b>Body.</b> Senses, a spiking brain, muscles. The world answers only the muscles.</li>
+        <li><b>Growth.</b> At a moment that matters a brain grows a neuron — a skill nobody wrote — and prunes the ones that stop earning their keep.</li>
+        <li><b>Heredity.</b> The skills that served a parent best are born into the child as instincts.</li>
+        <li><b>Drift.</b> Looks drift freely; a group that settles apart becomes a people with its own name, colours and roofs.</li>
+        <li><b>Time.</b> Every year a new age, drawn from the seed: plenty, frost, hunters, change — each with an omen.</li>
+        <li><b>Fate.</b> Crises by chance, harder as the settlement grows.</li>
+      </ol>
     </div>
   </section>
 

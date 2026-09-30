@@ -29,7 +29,7 @@
 > **The Answer** — 42. This repository. ([MANIFESTO.md](MANIFESTO.md))
 
 Eight humans wake up beside a river with a genome, a body that gets hungry,
-thirsty, cold and tired, and a **341-neuron spiking brain**. Nothing they do is
+thirsty, cold and tired, and a **341-neuron spiking brain** that grows new neurons as it lives. Nothing they do is
 written down: they forage, court, raise children, fell trees, build roundhouses,
 sow fields and dig canals because their neural activity produces motor commands —
 and those commands are the only thing the world reacts to. Open any of them and
@@ -63,6 +63,33 @@ including the parts that fail their own acceptance test.
 
 ---
 
+## v3 — the Evolution update
+
+What used to be written content is now generated while the world runs, from
+seven **[Rules of Creation](docs/RULES_OF_CREATION.md)** (in the game: journal →
+**Book of Life**, key **B**):
+
+- **One cell, one object.** The island is a grid; every plant, pile, canal,
+  field and building owns its cells and nothing overlaps. People still walk
+  freely. Press **G** to see it.
+- **Neurons grow.** At a moment that matters a brain grows a new neuron from what
+  stood out in its senses to what it was doing — a **skill** nobody wrote,
+  named from its wiring (*"Thirst Drink — when thirsty and water ahead:
+  drink"*). Useless ones are pruned. Room for them is a gene.
+- **Instincts evolve.** The skills that served a parent best are born into the
+  child as wiring, with mutation, and spread down lineages.
+- **Looks are generated.** Seven new genes — build, head, hairstyle, hair
+  colour, body paint, paint colour, adornment — drift freely, so an isolated
+  village comes to look like itself.
+- **Peoples arise.** A group that settles apart becomes a people with a
+  generated name; a people that drifts far enough becomes another. Their
+  buildings take their colour, roof and pennant.
+- **Ages never end.** Every year a new age is drawn from the seed — Plenty,
+  Frost, Hunters, Change, Calm… — leaning the physics one way, with an omen.
+
+Plans: [where the money could come from](docs/MONETIZATION.md) (no pay-to-win,
+the web version stays free).
+
 ## The game
 
 The observatory became a game without scripting anyone. You change physics,
@@ -83,7 +110,7 @@ full design — loops, numbers, the hundred-hour breakdown — is
   wildfire, eclipse — each with a day's warning, harder as the settlement grows.
 - **Favour.** Interventions cost it; it grows when the world thrives. New tools:
   rain, bless, and reward/pain **pulses** into one brain's learning signal.
-- **The atlas** of 65 behaviours nobody wrote — Provider, Night Watch, Irrigator,
+- **The atlas** of 71 behaviours nobody wrote — Provider, Night Watch, Irrigator,
   Mourner, Learned to reap… — detected by an observational classifier with a
   stated criterion. Epithets follow people into the **chronicle**, whose
   obituaries are built from recorded facts only.
@@ -512,7 +539,7 @@ npm run desktop        # Tauri desktop app in development
 ### Test
 
 ```bash
-npm test            # 202 unit + integration tests
+npm test            # 221 unit + integration tests
 npm run accept      # the 50-point acceptance scenario from the design brief
 npm run smoke:server # boots the server and drives it over a real socket
 npm run balance     # ecology across a batch of seeds
