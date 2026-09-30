@@ -19,6 +19,14 @@ export class GameLayer {
   readonly sky = new Container();
 
   private snow: Sprite | null = null;
+  /**
+   * The land grid, drawn as faint lines between cells. Always there, stronger
+   * when the observer asks for it (G) or zooms in close; it is the rule "one
+   * cell, one object" made visible.
+   */
+  private readonly grid = new Graphics();
+  private gridShown = false;
+  private zoom = 1;
   private readonly trailCanvas = document.createElement('canvas');
   private trails: Sprite | null = null;
   private trailTexture: Texture | null = null;
@@ -59,6 +67,35 @@ export class GameLayer {
     this.ground.addChild(this.snow);
     this.width = terrain.width;
     this.height = terrain.height;
+    this.drawGrid(terrain);
+  }
+
+  private drawGrid(terrain: TerrainData): void {
+    const g = this.grid.clear();
+    for (let x = 0; x <= terrain.width; x++) g.moveTo(x, 0).lineTo(x, terrain.height);
+    for (let y = 0; y <= terrain.height; y++) g.moveTo(0, y).lineTo(terrain.width, y);
+    g.stroke({ color: 0xf4efe0, width: 0.03, alpha: 1 });
+    this.ground.addChild(this.grid);
+    this.updateGridAlpha();
+  }
+
+  /** Toggle the grid overlay; returns whether it is now shown. */
+  toggleGrid(): boolean {
+    this.gridShown = !this.gridShown;
+    this.updateGridAlpha();
+    return this.gridShown;
+  }
+
+  setZoom(zoom: number): void {
+    if (Math.abs(zoom - this.zoom) < 0.02) return;
+    this.zoom = zoom;
+    this.updateGridAlpha();
+  }
+
+  private updateGridAlpha(): void {
+    // A whisper at island scale, legible close up, clear when asked for.
+    const close = Math.max(0, Math.min(1, (this.zoom - 1.6) / 2));
+    this.grid.alpha = this.gridShown ? 0.34 : 0.05 + 0.1 * close;
   }
 
   private width = 0;

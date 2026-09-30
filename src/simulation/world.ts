@@ -1,6 +1,7 @@
 import { Rng } from './rng';
 import { DAY_SECONDS, DT, MAX_CANALS, MAX_EVENTS, MAX_FIELDS, MAX_PLANTS, MAX_POPULATION, MAX_PREDATORS, MAX_STRUCTURES, SIM_HZ, SPATIAL_CELL, WORLD_H, WORLD_W, AGE_ADULT_END, AGE_CHILD_END } from '../shared/constants';
 import { SpatialGrid } from './spatial/grid';
+import { FOOTPRINT, Occupancy, Occupant, snap } from './spatial/occupancy';
 import { generateTerrain, nearestWalkable, computeWaterDistance, tileAt, waterDistanceAt, Tile, isFreshAt, type TerrainData } from './environment/terrain';
 import { ambientTemperature, createClimate, DAY_PHASE_AT_GENESIS, updateClimate, type Climate } from './environment/climate';
 import { Human, MATING_DURATION, MATING_REFRACTORY } from './entities/human';
@@ -236,6 +237,11 @@ export class World implements SimWorld {
   private structureGrid: SpatialGrid;
   private fieldGrid: SpatialGrid;
   private canalGrid: SpatialGrid;
+  /**
+   * The land grid: which object owns each one-tile cell. One cell, one object —
+   * the first Rule of Creation. See spatial/occupancy.ts.
+   */
+  readonly land: Occupancy;
 
   // --- the game layer ----------------------------------------------------
   /** The charter and biome, resolved into numbers the physics reads. */
@@ -312,6 +318,7 @@ export class World implements SimWorld {
     this.structureGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
     this.fieldGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
     this.canalGrid = new SpatialGrid(this.terrain.width, this.terrain.height, SPATIAL_CELL);
+    this.land = new Occupancy(this.terrain.width, this.terrain.height);
 
     this.seedPlants(options.plantDensity);
     this.seedFounders(rules.foundersOverride > 0 ? rules.foundersOverride : options.initialHumans);
@@ -376,6 +383,7 @@ export class World implements SimWorld {
               : PlantSpecies.Grass;
         const plant = new Plant(this.nextEntityId++, species, x + 0.5, y + 0.5, this.rng, this.rng.range(0.4, 1));
         this.plants.push(plant);
+        this.land.claim(plant.x, plant.y, Occupant.Plant, plant.id);
         count++;
       }
     }
@@ -387,7 +395,8 @@ export class World implements SimWorld {
           this.rng.range(4, width - 4),
           this.rng.range(4, height - 4),
         );
-        this.plants.push(new Plant(this.nextEntityId++, PlantSpecies.Grass, x, y, this.rng, 0.8));
+        if (!this.land.claim(x, y, Occupant.Plant, this.nextEntityId)) continue;
+        this.plants.push(new Plant(this.nextEntityId++, PlantSpecies.Grass, snap(x), snap(y), this.rng, 0.8));
       }
     }
   }
@@ -808,6 +817,9 @@ export class World implements SimWorld {
     if (this.fields.length >= MAX_FIELDS) return null;
     if (tileAt(this.terrain, x, y) !== Tile.Grass) return null;
     if (this.within(this.fieldGrid, this.fields, x, y, 4.5, this.fieldScratch) > 0) return null;
+    x = snap(x);
+    y = snap(y);
+    if (!this.claimGround(x, y, FOOTPRINT.field, Occupant.Field, this.nextEntityId)) return null;
     const field = new Field(this.nextEntityId++, x, y);
     field.fallowSince = this.tick;
     this.fields.push(field);
@@ -865,20 +877,20 @@ export class World implements SimWorld {
       // filling the map; with it applied here, a long-running world — which sits
       // at the cap permanently — turned every harvest into nothing but an event.
       // Carcasses were already exempt for the same reason.
-      const pile = new Plant(
-        this.nextEntityId++,
-        PlantSpecies.FoodPile,
-        field.x + this.rng.range(-1.2, 1.2),
-        field.y + this.rng.range(-1.2, 1.2),
-        this.rng,
-        1,
-      );
-      pile.food = amount;
-      pile.crop = true;
-      pile.origin = FoodOrigin.Crop;
-      pile.harvesterId = worker.id;
-      this.plants.push(pile);
-      this.plantGrid.insert(this.plants.length - 1, pile.x, pile.y);
+      const px = field.x + this.rng.range(-1.2, 1.2);
+      const py = field.y + this.rng.range(-1.2, 1.2);
+      // Beside the field, on the first free cell outside it.
+      const spot = this.pileSpot(px, py, 5);
+      if (spot) {
+        const pile = new Plant(this.nextEntityId++, PlantSpecies.FoodPile, spot[0], spot[1], this.rng, 1);
+        pile.food = amount;
+        pile.crop = true;
+        pile.origin = FoodOrigin.Crop;
+        pile.harvesterId = worker.id;
+        this.plants.push(pile);
+        this.plantGrid.insert(this.plants.length - 1, pile.x, pile.y);
+        this.land.claim(pile.x, pile.y, Occupant.Plant, pile.id);
+      }
     }
 
     // Atlas bookkeeping: who reaped, whose canals watered it, whose rotation paid.
@@ -927,6 +939,9 @@ export class World implements SimWorld {
     const nearCanal = this.within(this.canalGrid, this.canals, x, y, CANAL_LINK, this.canalScratch) > 0;
     if (!nearWater && !nearCanal) return null;
 
+    x = snap(x);
+    y = snap(y);
+    if (!this.claimGround(x, y, FOOTPRINT.canal, Occupant.Canal, this.nextEntityId)) return null;
     const canal = new Canal(this.nextEntityId++, x, y);
     this.canals.push(canal);
     this.canalGrid.insert(this.canals.length - 1, x, y);
@@ -1013,11 +1028,14 @@ export class World implements SimWorld {
     if (nearby > 0) return null;
     if (this.unfinishedWithin(this.structureGrid, this.structures, x, y)) return null;
 
-    const [sx, sy] = nearestWalkable(this.terrain, x, y);
+    const [wx, wy] = nearestWalkable(this.terrain, x, y);
+    const sx = snap(wx);
+    const sy = snap(wy);
     const kind = this.siteKind(sx, sy);
     if (kind !== StructureKind.Palisade) {
       if (this.within(this.structureGrid, this.structures, sx, sy, 5.5, this.structureScratch) > 0) return null;
     }
+    if (!this.claimGround(sx, sy, FOOTPRINT.structure, Occupant.Structure, this.nextEntityId)) return null;
     const site = new Structure(this.nextEntityId++, sx, sy, kind);
     this.structures.push(site);
     this.structureGrid.insert(this.structures.length - 1, sx, sy);
@@ -1213,6 +1231,61 @@ export class World implements SimWorld {
     for (let i = 0; i < this.canals.length; i++) {
       this.canalGrid.insert(i, this.canals[i].x, this.canals[i].y);
     }
+    this.rebuildLand();
+  }
+
+  /**
+   * Re-claim the land grid from the objects standing on it. Buildings first,
+   * then fields, canals and plants, so if two things ever share a cell (a save
+   * from before the grid) the larger, more deliberate one keeps it.
+   */
+  private rebuildLand(): void {
+    const land = this.land;
+    land.clear();
+    for (const site of this.structures) land.claimSquare(site.x, site.y, FOOTPRINT.structure, Occupant.Structure, site.id);
+    for (const field of this.fields) land.claimSquare(field.x, field.y, FOOTPRINT.field, Occupant.Field, field.id);
+    for (const canal of this.canals) land.claim(canal.x, canal.y, Occupant.Canal, canal.id);
+    for (let i = 0; i < this.plants.length; i++) {
+      const plant = this.plants[i];
+      if (plant.alive) land.claim(plant.x, plant.y, Occupant.Plant, plant.id);
+    }
+  }
+
+  /** Plants that give way to a field, a canal or a building: grass and bushes. Trees and food do not. */
+  private readonly plantById = new Map<number, Plant>();
+  private readonly clearable = (kind: Occupant, id: number): boolean => {
+    if (kind !== Occupant.Plant) return false;
+    const plant = this.plantById.get(id);
+    return !!plant && (plant.species === PlantSpecies.Grass || plant.species === PlantSpecies.Bush);
+  };
+  private readonly clearScratch: number[] = [];
+
+  /** Whether a square can be built on, clearing grass and bushes if it can. */
+  private claimGround(x: number, y: number, half: number, kind: Occupant, id: number): boolean {
+    this.plantById.clear();
+    this.land.ownersInSquare(x, y, half, Occupant.Plant, this.clearScratch);
+    if (this.clearScratch.length > 0) {
+      for (const plant of this.plants) if (plant.alive && this.clearScratch.includes(plant.id)) this.plantById.set(plant.id, plant);
+    }
+    if (!this.land.squareFree(x, y, half, this.clearable)) return false;
+    for (const plant of this.plantById.values()) {
+      plant.alive = false;
+      this.land.releaseSquare(plant.x, plant.y, 0, plant.id);
+    }
+    this.land.claimSquare(x, y, half, kind, id);
+    return true;
+  }
+
+  /**
+   * Where a pile of food can go: the nearest free walkable cell to (x, y), or
+   * null if the ground around is full. A pile never lands on a field, a canal,
+   * a building or another plant.
+   */
+  private pileSpot(x: number, y: number, maxRing = 4): [number, number] | null {
+    return this.land.nearestFree(x, y, maxRing, (px, py) => {
+      const tile = tileAt(this.terrain, px, py);
+      return tile !== Tile.Water && tile !== Tile.Rock;
+    });
   }
 
   step(): void {
@@ -1309,6 +1382,10 @@ export class World implements SimWorld {
       if (!plant.alive) continue;
       const child = plant.update(this.terrain, DT, this.rng, spreadAllowed, growth);
       if (child) {
+        // A seed takes only in an empty cell, and grows at its centre.
+        child.x = snap(child.x);
+        child.y = snap(child.y);
+        if (!this.land.claim(child.x, child.y, Occupant.Plant, this.nextEntityId)) continue;
         child.id = this.nextEntityId++;
         spawned.push(child);
       }
@@ -1624,9 +1701,13 @@ export class World implements SimWorld {
     this.addEffect('death', target.x, target.y, 2.2, 1.1);
 
     // The body becomes carrion: biomass re-enters the ecosystem.
-    const carcass = new Plant(this.nextEntityId++, PlantSpecies.FoodPile, target.x, target.y, this.rng, 1);
-    carcass.food = SPECIES_PROFILES[PlantSpecies.FoodPile].maxFood * (0.5 + 0.5 * target.bodyScale());
-    this.plants.push(carcass);
+    const spot = this.pileSpot(target.x, target.y);
+    if (spot) {
+      const carcass = new Plant(this.nextEntityId++, PlantSpecies.FoodPile, spot[0], spot[1], this.rng, 1);
+      carcass.food = SPECIES_PROFILES[PlantSpecies.FoodPile].maxFood * (0.5 + 0.5 * target.bodyScale());
+      this.plants.push(carcass);
+      this.land.claim(carcass.x, carcass.y, Occupant.Plant, carcass.id);
+    }
 
     // Anyone who knew them remembers the loss.
     for (const other of this.humans) {
@@ -1699,9 +1780,13 @@ export class World implements SimWorld {
     target.deathReason = reason;
     this.emitEvent('death', `${target.name} died from ${reason}.`, [target.id]);
     this.addEffect('death', target.x, target.y, 1.8, 1.1);
-    const carcass = new Plant(this.nextEntityId++, PlantSpecies.FoodPile, target.x, target.y, this.rng, 1);
-    carcass.food = SPECIES_PROFILES[PlantSpecies.FoodPile].maxFood * 1.1;
-    this.plants.push(carcass);
+    const spot = this.pileSpot(target.x, target.y);
+    if (spot) {
+      const carcass = new Plant(this.nextEntityId++, PlantSpecies.FoodPile, spot[0], spot[1], this.rng, 1);
+      carcass.food = SPECIES_PROFILES[PlantSpecies.FoodPile].maxFood * 1.1;
+      this.plants.push(carcass);
+      this.land.claim(carcass.x, carcass.y, Occupant.Plant, carcass.id);
+    }
   }
 
   private compact(): void {
@@ -1935,7 +2020,7 @@ export class World implements SimWorld {
       if (granary.store > 0.05) {
         // Find this granary's stall: a granary pile within reach.
         let stall: Plant | null = null;
-        const count = this.within(this.plantGrid, this.plants, granary.x, granary.y, 2.2, this.scratchB);
+        const count = this.within(this.plantGrid, this.plants, granary.x, granary.y, 3.2, this.scratchB);
         for (let i = 0; i < count; i++) {
           const plant = this.plants[this.scratchB[i]];
           if (plant && plant.alive && plant.origin === FoodOrigin.Granary) {
@@ -1944,11 +2029,18 @@ export class World implements SimWorld {
           }
         }
         if (!stall) {
-          stall = new Plant(this.nextEntityId++, PlantSpecies.FoodPile, granary.x + 1.4, granary.y + 0.6, this.rng, 1);
+          // On the first free cell just outside the granary's own ground.
+          const spot = this.pileSpot(granary.x + 2, granary.y, 1);
+          if (!spot) {
+            total += granary.store;
+            continue;
+          }
+          stall = new Plant(this.nextEntityId++, PlantSpecies.FoodPile, spot[0], spot[1], this.rng, 1);
           stall.food = 0;
           stall.origin = FoodOrigin.Granary;
           this.plants.push(stall);
           this.plantGrid.insert(this.plants.length - 1, stall.x, stall.y);
+          this.land.claim(stall.x, stall.y, Occupant.Plant, stall.id);
         }
         const want = Math.max(0, GRANARY_STALL - stall.food);
         const given = Math.min(want, granary.store);
@@ -2587,11 +2679,15 @@ export class World implements SimWorld {
   }
 
   spawnFood(x: number, y: number, amount = 1.4): void {
-    const [px, py] = nearestWalkable(this.terrain, x, y, 8);
+    const [wx, wy] = nearestWalkable(this.terrain, x, y, 8);
+    const spot = this.pileSpot(wx, wy, 6);
+    if (!spot) return;
+    const [px, py] = spot;
     const pile = new Plant(this.nextEntityId++, PlantSpecies.FoodPile, px, py, this.rng, 1);
     pile.food = amount;
     pile.origin = FoodOrigin.Gift;
     this.plants.push(pile);
+    this.land.claim(px, py, Occupant.Plant, pile.id);
     this.emitEvent('god', `Food was placed by the observer.`, []);
     this.addEffect('spawn', px, py, 1.2, 1);
   }
@@ -3470,6 +3566,18 @@ export class World implements SimWorld {
     // irrelevant.
     world.rng.setState(data.rng as number[]);
 
+    // A save from before the land grid: set everything on cell centres. A save
+    // made since is already on them, so this changes nothing for it.
+    for (const plant of world.plants) {
+      plant.x = snap(plant.x);
+      plant.y = snap(plant.y);
+    }
+    for (const list of [world.structures, world.fields, world.canals] as Array<Array<{ x: number; y: number }>>) {
+      for (const item of list) {
+        item.x = snap(item.x);
+        item.y = snap(item.y);
+      }
+    }
     world.rebuildGrids();
     return world;
   }

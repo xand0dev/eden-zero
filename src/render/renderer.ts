@@ -427,6 +427,7 @@ export class WorldRenderer {
     }
 
     for (const sprite of this.structures.values()) sprite.animate(clampedDt);
+    this.gameLayer.setZoom(this.camera.zoom);
     this.gameLayer.animate(clampedDt, this.lastEntities);
     if (this.labelId !== null) {
       const target = this.lastEntities.find((e) => e.id === this.labelId);
@@ -537,6 +538,11 @@ export class WorldRenderer {
   }
 
   /** Name the selected person over their head. */
+  /** Show or hide the land grid overlay. */
+  toggleGrid(): boolean {
+    return this.gameLayer.toggleGrid();
+  }
+
   setLabel(id: number | null, text: string): void {
     this.labelId = id;
     this.labelText = text;

@@ -9,6 +9,7 @@ import {
   FIELD_START_MOISTURE,
 } from '../src/simulation/entities/cultivation';
 import { Tile } from '../src/simulation/environment/terrain';
+import { PlantSpecies } from '../src/simulation/entities/plant';
 import { DT } from '../src/shared/constants';
 import { wrapSave, unwrapSave } from '../src/simulation/persistence/save';
 
@@ -89,6 +90,13 @@ function findIrrigationSite(world: World): Site | null {
       const last = chain[chain.length - 1];
       if (Math.hypot(last.x - field.x, last.y - field.y) > CANAL_REACH - 1) continue;
       if (Math.hypot(last.x - field.x, last.y - field.y) < 1) continue;
+      // One cell, one object: the field owns a 3x3 square, so no canal may sit
+      // in it and no tree may stand in it.
+      if (chain.some((c) => Math.max(Math.abs(c.x - field.x), Math.abs(c.y - field.y)) < 2)) continue;
+      const tree = world.plants.some(
+        (p) => p.alive && p.species === PlantSpecies.Tree && Math.abs(p.x - field.x) <= 1 && Math.abs(p.y - field.y) <= 1,
+      );
+      if (tree) continue;
       return { field, chain };
     }
   }

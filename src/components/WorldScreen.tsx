@@ -297,6 +297,10 @@ export function WorldScreen({
         case 'D':
           game.setDirector(!game.getSnapshot().director);
           break;
+        case 'g':
+        case 'G':
+          rendererRef.current?.toggleGrid();
+          break;
         default:
           break;
       }
@@ -556,6 +560,7 @@ export function WorldScreen({
             <div className="hint">
               <span className="kbd">space</span> pause · <span className="kbd">1-5</span> speed · <span className="kbd">c</span>{' '}
               chronicle · <span className="kbd">a</span> atlas · <span className="kbd">d</span> director ·{' '}
+              <span className="kbd">g</span> grid ·{' '}
               <span className="kbd">f</span> follow
             </div>
           )}
