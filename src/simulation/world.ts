@@ -28,6 +28,8 @@ import { createEraState, ERA_CHECK_INTERVAL, ERA_NAMES, ERA_NUMERALS, ERA_SENSOR
 import { CRISES, createFate, crisisFactors, NEUTRAL_FACTORS, updateFate, type CrisisFactors, type FateState } from './game/crises';
 import { createFavour, FAVOUR_BASE_RATE, FAVOUR_REWARDS, favourCap, grant, priceOf, type FavourState } from './game/favour';
 import { Chronicle, obituary, ordinal, type ChronicleEntry } from './game/chronicle';
+import { AGE_LENGTH_YEARS, ageOf, ageTitle, createAgeState, type Age, type AgeState } from './game/ages';
+import { BECOME_DISTANCE, DIVERGE_DAYS, MIN_PEOPLE, describeLook, distance, findDivergence, lookOf, meanLook, namePeople, type Member, type People } from './game/peoples';
 import { ATLAS, atlasEntry, createLog, epithetFor, evaluate, regionIndex, SAMPLE_INTERVAL, type AtlasSubject, type BehaviourLog } from './game/atlas';
 import {
   GRANARY_RANGE,
@@ -58,6 +60,7 @@ import {
   STAGE_NAMES,
   type BrainView,
   type GrownView,
+  type StructureView,
   type DevMetrics,
   type EventKind,
   type ExplanationView,
@@ -259,6 +262,14 @@ export class World implements SimWorld {
   /** Worn trails. */
   readonly paths: Paths;
   eraState: EraState = createEraState();
+  /** The rules as the charter and biome made them, before the current age leans on them. */
+  private readonly baseRules: WorldRules;
+  /** Which age the world is in, and what its omen asks. */
+  ageState: AgeState = createAgeState();
+  /** The current age, generated from the seed and `ageState`. */
+  age: Age;
+  /** Every people the world has made, living and gone, in order of naming. */
+  peoples: People[] = [];
   fate: FateState;
   favour: FavourState;
   readonly chronicle = new Chronicle();
@@ -313,6 +324,8 @@ export class World implements SimWorld {
     const rules = rulesFor(options.charter ?? []);
     biomeById(options.biome).apply(rules);
     this.rules = rules;
+    this.baseRules = { ...rules, crisisWeights: { ...rules.crisisWeights } };
+    this.age = ageOf(options.seed, 1, options.initialHumans);
     this.terrain = generateTerrain(options.seed, WORLD_W, WORLD_H, terrainParamsFor(options.biome));
     this.waterDistance = computeWaterDistance(this.terrain);
     this.climate = createClimate();
@@ -333,6 +346,7 @@ export class World implements SimWorld {
     this.seedPlants(options.plantDensity);
     this.seedFounders(rules.foundersOverride > 0 ? rules.foundersOverride : options.initialHumans);
     this.seedPredators(Math.round(options.initialPredators * rules.predatorsAtGenesis));
+    this.foundFirstPeople();
 
     // Populate the spatial grids immediately.
     //
@@ -436,6 +450,7 @@ export class World implements SimWorld {
       // still happens, so the rest of genesis consumes the stream identically.
       const vaulted = this.options.founderGenomes?.[i];
       if (vaulted) genome = sanitizeGenome(cloneGenome(vaulted));
+      else this.shareFoundingLook(genome);
       const name = this.nameRegistry.claim(FOUNDER_NAMES[i % FOUNDER_NAMES.length]);
       const human = new Human(this.nextEntityId++, name, sex, genome, this.rng.fork(), this.brainOptions);
       human.x = x;
@@ -539,6 +554,208 @@ export class World implements SimWorld {
       this.predators.push(predator);
       this.predatorById.set(predator.id, predator);
     }
+  }
+
+  /**
+   * Founders are one people, so they share a look: each founder's neutral genes
+   * are pulled most of the way toward a look drawn for this world (from a
+   * stream of its own, so the world's randomness is untouched). Drift takes it
+   * from there.
+   */
+  private foundingLook: Partial<Record<GeneKey, number>> | null = null;
+  private shareFoundingLook(genome: Genome): void {
+    if (!this.foundingLook) {
+      const rng = new Rng(`${this.seed}:look`);
+      const look: Partial<Record<GeneKey, number>> = {};
+      for (const key of ['hue', 'saturation', 'lightness', 'headShape', 'hairStyle', 'hairHue', 'markings', 'markingHue', 'ornament'] as GeneKey[]) {
+        const def = geneDef(key);
+        look[key] = def.min + rng.next() * (def.max - def.min);
+      }
+      // Paint and adornment start faint: they arrive by drift.
+      look.markings = rng.next() * 0.25;
+      look.ornament = rng.next() * 0.3;
+      this.foundingLook = look;
+    }
+    for (const [key, target] of Object.entries(this.foundingLook) as Array<[GeneKey, number]>) {
+      genome[key] = target + (genome[key] - target) * 0.25;
+    }
+    sanitizeGenome(genome);
+  }
+
+  private foundFirstPeople(): void {
+    const style = namePeople(this.seed, 1);
+    const look = meanLook(this.humans.map((h) => ({ id: h.id, x: h.x, y: h.y, look: lookOf(h.genome) })));
+    this.peoples = [
+      { id: 1, name: style.name, founded: 0, parent: null, origin: 'genesis', reference: look, look, members: this.humans.length, extinct: null, hue: style.hue, roof: style.roof },
+    ];
+    for (const human of this.humans) human.people = 1;
+  }
+
+  private peopleById(id: number): People | undefined {
+    return this.peoples.find((p) => p.id === id);
+  }
+
+  /**
+   * Once a day: count each people, notice the ones that have died out, and let
+   * heredity and drift make new ones — at most one new people per day, so the
+   * chronicle can tell each story.
+   */
+  private updatePeoples(): void {
+    const groups = new Map<number, Member[]>();
+    for (const human of this.humans) {
+      if (!human.alive) continue;
+      let group = groups.get(human.people);
+      if (!group) groups.set(human.people, (group = []));
+      const x = Number.isFinite(human.hauntX) ? human.hauntX : human.x;
+      const y = Number.isFinite(human.hauntY) ? human.hauntY : human.y;
+      group.push({ id: human.id, x, y, look: lookOf(human.genome) });
+    }
+    let changed = false;
+    // Only the peoples that existed at the start of the check: one named during
+    // it has its members counted already and none of them in `groups`.
+    for (const people of this.peoples.slice()) {
+      if (people.extinct !== null) continue;
+      const members = groups.get(people.id) ?? [];
+      people.members = members.length;
+      if (members.length === 0) {
+        people.extinct = this.tick;
+        if (this.tick > 0) {
+          this.chronicle.add({
+            tick: this.tick, simTime: this.simTime, kind: 'people', importance: 2,
+            title: `The last of the ${people.name}`,
+            text: `No one of the ${people.name} is left alive.`,
+            entityIds: [],
+          });
+        }
+        continue;
+      }
+      people.look = meanLook(members);
+      if (changed || members.length < MIN_PEOPLE) continue;
+
+      // Becoming: the whole people has drifted away from what it was.
+      if (distance(people.look, people.reference) >= BECOME_DISTANCE) {
+        const next = this.namePeople(people.id, 'became', people.look, members.map((m) => m.id));
+        people.extinct = this.tick;
+        people.members = 0;
+        this.chronicle.add({
+          tick: this.tick, simTime: this.simTime, kind: 'people', importance: 3,
+          title: `The ${people.name} become the ${next.name}`,
+          text: `Generation by generation the ${people.name} changed until they were no longer the ${people.name}. The world now calls them the ${next.name}: ${describeLook(next.look)}.`,
+          entityIds: members.slice(0, 6).map((m) => m.id),
+        });
+        changed = true;
+        continue;
+      }
+
+      // Divergence: part of the people has settled apart, and stayed apart.
+      const split = findDivergence(members);
+      people.splitDays = split ? (people.splitDays ?? 0) + 1 : 0;
+      if (split && people.splitDays >= DIVERGE_DAYS) {
+        people.splitDays = 0;
+        const next = this.namePeople(people.id, 'diverged', split.look, split.leaving);
+        people.members -= split.leaving.length;
+        this.chronicle.add({
+          tick: this.tick, simTime: this.simTime, kind: 'people', importance: 3,
+          title: `A new people: the ${next.name}`,
+          text: `${split.leaving.length} of the ${people.name} have settled apart, and the world counts them a people of their own now: the ${next.name} — ${describeLook(next.look)}. From here they drift on their own.`,
+          entityIds: split.leaving.slice(0, 6),
+        });
+        this.emitEvent('milestone', `A new people has arisen: the ${next.name}, from the ${people.name}.`, split.leaving.slice(0, 6));
+        changed = true;
+      }
+    }
+  }
+
+  private namePeople(parent: number, origin: People['origin'], look: number[], memberIds: number[]): People {
+    const id = this.peoples.length + 1;
+    const style = namePeople(this.seed, id);
+    const people: People = {
+      id, name: style.name, founded: this.tick, parent, origin, reference: look.slice(), look,
+      members: memberIds.length, extinct: null, hue: style.hue, roof: style.roof,
+    };
+    this.peoples.push(people);
+    const ids = new Set(memberIds);
+    for (const human of this.humans) if (ids.has(human.id)) human.people = id;
+    return people;
+  }
+
+  /**
+   * The age turns every few years. The new age's trait leans on the charter's
+   * rules (always from the base, so ages never compound), and the old age's
+   * omen is judged.
+   */
+  private updateAge(): void {
+    const index = 1 + Math.floor(this.simTime / (AGE_LENGTH_YEARS * YEAR_SECONDS));
+    this.checkOmen();
+    if (index === this.ageState.index) return;
+    const previous = this.age;
+    const met = this.ageState.omenMet;
+    this.ageState = {
+      index,
+      startTick: this.tick,
+      births0: this.births,
+      skills0: this.skills.size,
+      peoples0: this.peoples.length,
+      fields0: this.fieldsSownTotal(),
+      discoveries0: this.discovered.size,
+      omensMet: this.ageState.omensMet,
+      omenMet: false,
+      population0: this.humans.length,
+    };
+    this.age = ageOf(this.seed, index, this.humans.length);
+    this.applyAge();
+    this.chronicle.add({
+      tick: this.tick, simTime: this.simTime, kind: 'age', importance: 3,
+      title: `${ageTitle(this.age)} — ${this.age.name}`,
+      text: `${ageTitle(previous)} ends${met ? ', its omen fulfilled' : ''}. A new age begins: ${this.age.trait.text} Omen: ${this.age.omen.label}.`,
+      entityIds: [],
+    });
+    this.emitEvent('milestone', `${ageTitle(this.age)} begins (age ${index}). ${this.age.trait.text}`, []);
+  }
+
+  /** Lean the rules the way the current age says, from the charter's base. */
+  private applyAge(): void {
+    Object.assign(this.rules, this.baseRules, { crisisWeights: { ...this.baseRules.crisisWeights } });
+    this.age.trait.apply(this.rules, this.age.intensity);
+  }
+
+  private fieldsSownTotal(): number {
+    let sown = 0;
+    for (const log of this.logs.values()) sown += log.fieldsSown ?? 0;
+    return sown;
+  }
+
+  /** How far the current age's omen has come: [current, target]. */
+  omenProgress(): [number, number] {
+    const omen = this.age.omen;
+    const st = this.ageState;
+    const current =
+      omen.kind === 'births' ? this.births - st.births0
+      : omen.kind === 'skills' ? this.skills.size - st.skills0
+      : omen.kind === 'people' ? this.peoples.length - st.peoples0
+      : omen.kind === 'survive' ? this.humans.length
+      : omen.kind === 'fields' ? this.fieldsSownTotal() - st.fields0
+      : this.discovered.size - st.discoveries0;
+    return [Math.max(0, current), omen.target];
+  }
+
+  private checkOmen(): void {
+    if (this.ageState.omenMet) return;
+    const omen = this.age.omen;
+    // Survival is judged at the end of the age, everything else as it happens.
+    const yearsIn = (this.tick - this.ageState.startTick) / TICKS_PER_YEAR;
+    if (omen.kind === 'survive' && yearsIn < AGE_LENGTH_YEARS - 0.05) return;
+    const [current, target] = this.omenProgress();
+    if (current < target) return;
+    this.ageState.omenMet = true;
+    this.ageState.omensMet += 1;
+    grant(this.favour, FAVOUR_REWARDS.omen, this.eraState.era);
+    this.chronicle.add({
+      tick: this.tick, simTime: this.simTime, kind: 'age', importance: 2,
+      title: `The omen of ${this.age.name} is fulfilled`,
+      text: `${omen.label[0].toUpperCase()}${omen.label.slice(1)} — as the age foretold.`,
+      entityIds: [],
+    });
   }
 
   // ---------------------------------------------------------------------
@@ -1073,6 +1290,7 @@ export class World implements SimWorld {
     }
     if (!this.claimGround(sx, sy, FOOTPRINT.structure, Occupant.Structure, this.nextEntityId)) return null;
     const site = new Structure(this.nextEntityId++, sx, sy, kind);
+    site.people = builder.people;
     this.structures.push(site);
     this.structureGrid.insert(this.structures.length - 1, sx, sy);
     if (frontier) {
@@ -1591,6 +1809,7 @@ export class World implements SimWorld {
     const sex = this.rng.next() < 0.5 ? Sex.Female : Sex.Male;
     const name = this.nameRegistry.next(this.rng);
     const baby = new Human(this.nextEntityId++, name, sex, genome, this.rng.fork(), this.brainOptions);
+    baby.people = mother.people;
 
     const angle = this.rng.next() * Math.PI * 2;
     const [bx, by] = nearestWalkable(
@@ -1912,6 +2131,8 @@ export class World implements SimWorld {
     grant(this.favour, FAVOUR_BASE_RATE * this.rules.favourRate * DT, this.eraState.era);
 
     if (tick % ERA_CHECK_INTERVAL === 0) this.checkEra();
+    if (tick % ERA_CHECK_INTERVAL === 0) this.updateAge();
+    if (tick % TICKS_PER_DAY === 0) this.updatePeoples();
     if (tick % 200 === 0) this.evaluateAtlas();
     if (tick % 40 === 0) this.updateSpotlight();
     if (tick % (TICKS_PER_DAY / 2) === 0) {
@@ -1967,7 +2188,35 @@ export class World implements SimWorld {
     });
     this.pendingDiscoveries = [];
     const centre = this.settlementCentre;
+    const [omenNow, omenTarget] = this.omenProgress();
     return {
+      age: {
+        index: this.age.index,
+        name: this.age.name,
+        title: ageTitle(this.age),
+        text: this.age.trait.text,
+        omen: this.age.omen.label,
+        progress: [omenNow, omenTarget],
+        omenMet: this.ageState.omenMet,
+        omensMet: this.ageState.omensMet,
+        yearsLeft: Math.max(0, AGE_LENGTH_YEARS - (this.simTime % (AGE_LENGTH_YEARS * YEAR_SECONDS)) / YEAR_SECONDS),
+      },
+      peoples: this.peoples.map((p) => ({
+        id: p.id,
+        name: p.name,
+        members: p.members,
+        extinct: p.extinct !== null,
+        origin: p.origin,
+        parentName: p.parent !== null ? (this.peopleById(p.parent)?.name ?? null) : null,
+        look: describeLook(p.look),
+        hue: p.hue,
+        year: Math.floor(p.founded / TICKS_PER_YEAR) + 1,
+      })),
+      skillCount: this.skills.size,
+      skillBook:
+        !this.cachedSkillBook || this.tick - this.skillBookTick >= 100
+          ? ((this.skillBookTick = this.tick), (this.cachedSkillBook = this.skillBook()))
+          : this.cachedSkillBook,
       mode: this.options.mode ?? 'sandbox',
       biome: this.options.biome ?? 'valley',
       charter: this.options.charter ?? [],
@@ -2028,6 +2277,15 @@ export class World implements SimWorld {
   }
 
   private cachedTrails = -1;
+  private cachedSkillBook: GameView['skillBook'] | null = null;
+  private skillBookTick = -1e9;
+
+  private skillBook(): GameView['skillBook'] {
+    return [...this.skills.values()]
+      .sort((a, b) => b.count - a.count || a.tick - b.tick)
+      .slice(0, 30)
+      .map((s) => ({ name: s.name, sentence: s.sentence, count: s.count, firstName: s.firstName, year: Math.floor(s.tick / TICKS_PER_YEAR) + 1 }));
+  }
   private cachedLand = -1;
 
   /**
@@ -2438,6 +2696,14 @@ export class World implements SimWorld {
       this.logs.set(human.id, log);
     }
     log.samples += 1;
+    if (Number.isFinite(human.hauntX)) {
+      // Sampled every 10 ticks: a time constant of about two thirds of a day.
+      human.hauntX += (human.x - human.hauntX) * 0.003;
+      human.hauntY += (human.y - human.hauntY) * 0.003;
+    } else {
+      human.hauntX = human.x;
+      human.hauntY = human.y;
+    }
     if (this.waterDistanceAt(human.x, human.y) <= 6) log.nearWater += 1;
     if (Math.hypot(human.x - human.homeX, human.y - human.homeY) <= 10) log.nearHome += 1;
     if (!(human.nearestHumanDistance <= 12)) log.alone += 1;
@@ -2696,6 +2962,10 @@ export class World implements SimWorld {
     // A god-spawned human has no mother, so its house is assigned rather than
     // inherited — in competitive mode it belongs to the observer who paid.
     human.house = house;
+    // A person made by the observer joins the largest living people.
+    let largest = this.peoples[0];
+    for (const people of this.peoples) if (people.extinct === null && people.members > (largest?.members ?? -1)) largest = people;
+    if (largest) human.people = largest.id;
     this.humans.push(human);
     this.humanById.set(human.id, human);
     this.logs.set(human.id, createLog(human.id));
@@ -3485,7 +3755,15 @@ export class World implements SimWorld {
       metrics: { ...metrics, entityCount: index, humanCount: count, predatorCount: predatorTotal, plantCount: plantTotal },
       // Structures change only when one is founded or receives timber, so the
       // list is small (bounded by MAX_STRUCTURES) and cheap to send whole.
-      structures: this.structures.map((s) => s.toData()),
+      structures: this.structures.map((s) => {
+        const data: StructureView = s.toData();
+        const people = s.people > 0 ? this.peopleById(s.people) : undefined;
+        if (people) {
+          data.styleHue = people.hue;
+          data.styleRoof = people.roof;
+        }
+        return data;
+      }),
       // Fields and canals ride in the JSON header for the same reason: they
       // change rarely, their count is bounded, and the binary payload is fully
       // allocated already.
@@ -3538,6 +3816,8 @@ export class World implements SimWorld {
         discovered: [...this.discovered.entries()],
         commandLog: this.commandLog,
         skills: [...this.skills.entries()],
+        ageState: this.ageState,
+        peoples: this.peoples,
         burning: [...this.burning.entries()],
         burningStructures: [...this.burningStructures.entries()],
         rains: this.rains,
@@ -3621,6 +3901,8 @@ export class World implements SimWorld {
         world.discovered.set(id, found);
       }
       world.commandLog = (game.commandLog as World['commandLog']) ?? [];
+      if (game.ageState) world.ageState = structuredCloneSafe(game.ageState as AgeState);
+      if (game.peoples) world.peoples = structuredCloneSafe(game.peoples as People[]);
       for (const [signature, skill] of (game.skills as Array<[string, World['skills'] extends Map<string, infer V> ? V : never]>) ?? []) {
         world.skills.set(signature, { ...skill });
       }
@@ -3636,6 +3918,8 @@ export class World implements SimWorld {
       // A save from before the game layer: start everyone's record fresh.
       for (const human of world.humans) world.logs.set(human.id, createLog(human.id));
     }
+    world.age = ageOf(world.seed, world.ageState.index, world.ageState.population0 ?? world.options.initialHumans);
+    world.applyAge();
     world.season = seasonFactors(world.simTime, world.seasonOptions());
     world.crisis = crisisFactors(world.fate, world.tick);
 

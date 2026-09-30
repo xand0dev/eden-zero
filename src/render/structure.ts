@@ -50,11 +50,27 @@ export class StructureSprite extends Container {
   private lastComplete = false;
   private lastStore = -1;
   private clock = 0;
+  /** Roof colours, from the builders' people (v3): thatch dyed toward their hue. */
+  private thatch = THATCH;
+  private thatchLight = THATCH_LIGHT;
+  private thatchDark = THATCH_DARK;
+  /** The people's colour, for the pennant; null before peoples existed. */
+  private banner: number | null = null;
+  /** Roof pitch: 1 plain, taller or lower by the people's roof shape. */
+  private pitch = 1;
 
-  constructor(seedPhase: number, kind = 0) {
+  constructor(seedPhase: number, kind = 0, style?: { hue: number; roof: number }) {
     super();
     this.variant = seedPhase % 1;
     this.kind = kind;
+    if (style) {
+      const dye = hslToHex(style.hue, 0.5, 0.5);
+      this.thatch = mix(THATCH, dye, 0.28);
+      this.thatchLight = mix(THATCH_LIGHT, dye, 0.2);
+      this.thatchDark = mix(THATCH_DARK, dye, 0.25);
+      this.banner = hslToHex(style.hue, 0.7, 0.52);
+      this.pitch = [1, 1.3, 0.78][style.roof] ?? 1;
+    }
     this.radius = kind === 5 ? 1.1 : kind === 2 ? 0.9 : kind === 3 ? 1.6 : 1.45;
     this.addChild(this.shadow, this.base, this.hut, this.glow, this.smoke, this.pulseRing);
   }
@@ -74,7 +90,7 @@ export class StructureSprite extends Container {
     if (pulse > 0) {
       this.pulseRing
         .ellipse(0, 0.3, this.radius + 0.4 + pulse * 0.6, (this.radius + 0.4 + pulse * 0.6) * 0.45)
-        .stroke({ color: THATCH_LIGHT, width: 0.08, alpha: (1 - pulse) * 0.7 });
+        .stroke({ color: this.thatchLight, width: 0.08, alpha: (1 - pulse) * 0.7 });
     }
     const storeLevel = Math.round(Math.min(1, store / 80) * 6);
     if (progress === this.lastProgress && complete === this.lastComplete && storeLevel === this.lastStore) return;
@@ -118,6 +134,13 @@ export class StructureSprite extends Container {
       this.drawPalisade(g, R, progress);
     } else {
       this.drawConstruction(g, R, progress);
+    }
+
+    if (complete && this.banner !== null && (this.kind === 0 || this.kind === 4 || this.kind === 1)) {
+      // The people's pennant on a pole beside the door.
+      const px = R * 0.95;
+      g.moveTo(px, 0.5).lineTo(px, -R * 0.9).stroke({ color: 0x3a2814, width: 0.06 });
+      g.poly([px, -R * 0.9, px + 0.55, -R * 0.78, px, -R * 0.64]).fill(this.banner).stroke({ color: LINE, width: 0.03, alpha: 0.5 });
     }
 
     this.glow.clear();
@@ -180,7 +203,7 @@ export class StructureSprite extends Container {
     // Conical thatched roof: the apex sits north of centre, as a cone does seen
     // from above and in front.
     const apexX = -0.05;
-    const apexY = -R * 1.05;
+    const apexY = -R * 1.05 * this.pitch;
     const eave = { cx: 0, cy: 0, rx: R * 1.12, ry: R * 0.62 };
     // Roof silhouette: eave ellipse plus the cone up to the apex.
     const pts: number[] = [];
@@ -190,20 +213,20 @@ export class StructureSprite extends Container {
       pts.push(eave.cx + Math.cos(a) * eave.rx, eave.cy + Math.sin(a) * eave.ry);
     }
     pts.push(apexX, apexY);
-    g.poly(pts).fill(THATCH).stroke({ color: LINE, width: 0.06, alpha: 0.65, join: 'round' });
+    g.poly(pts).fill(this.thatch).stroke({ color: LINE, width: 0.06, alpha: 0.65, join: 'round' });
     // Shade the east flank, light the west.
     const east: number[] = [apexX, apexY];
     for (let i = 0; i <= 20; i++) {
       const a = (i / 20) * (Math.PI / 2);
       east.push(Math.cos(a) * eave.rx, Math.sin(a) * eave.ry);
     }
-    g.poly(east).fill({ color: THATCH_DARK, alpha: 0.5 });
+    g.poly(east).fill({ color: this.thatchDark, alpha: 0.5 });
     const west: number[] = [apexX, apexY];
     for (let i = 0; i <= 14; i++) {
       const a = Math.PI - (i / 14) * (Math.PI / 3);
       west.push(Math.cos(a) * eave.rx * 0.95, Math.sin(a) * eave.ry * 0.9);
     }
-    g.poly(west).fill({ color: THATCH_LIGHT, alpha: 0.35 });
+    g.poly(west).fill({ color: this.thatchLight, alpha: 0.35 });
     // Straw: strokes running from the apex down to the eave.
     for (let i = 1; i < 22; i++) {
       const a = (i / 22) * Math.PI;
@@ -211,13 +234,13 @@ export class StructureSprite extends Container {
       const ey = Math.sin(a) * eave.ry;
       g.moveTo(apexX + (ex - apexX) * 0.15, apexY + (ey - apexY) * 0.15)
         .lineTo(ex * 0.98, ey * 0.98)
-        .stroke({ color: i % 2 ? THATCH_DARK : THATCH_LIGHT, width: 0.03, alpha: 0.35 });
+        .stroke({ color: i % 2 ? this.thatchDark : this.thatchLight, width: 0.03, alpha: 0.35 });
     }
     // A binding ring near the top and the ragged eave edge.
-    g.ellipse(apexX * 0.8, apexY * 0.72, R * 0.32, R * 0.14).stroke({ color: THATCH_DARK, width: 0.07, alpha: 0.7 });
+    g.ellipse(apexX * 0.8, apexY * 0.72, R * 0.32, R * 0.14).stroke({ color: this.thatchDark, width: 0.07, alpha: 0.7 });
     for (let i = 0; i <= 24; i++) {
       const a = (i / 24) * Math.PI;
-      g.circle(Math.cos(a) * eave.rx, Math.sin(a) * eave.ry, 0.07).fill({ color: THATCH_DARK, alpha: 0.6 });
+      g.circle(Math.cos(a) * eave.rx, Math.sin(a) * eave.ry, 0.07).fill({ color: this.thatchDark, alpha: 0.6 });
     }
     // Smoke hole.
     g.circle(apexX, apexY + 0.12, 0.1).fill(0x2a1c10);
@@ -236,16 +259,16 @@ export class StructureSprite extends Container {
     for (let i = 1; i < 6; i++) g.moveTo(-w / 2 + (w * i) / 6, -h * 0.35).lineTo(-w / 2 + (w * i) / 6, h * 0.4).stroke({ color: WATTLE_DARK, width: 0.04 });
     g.roundRect(-0.22, -0.05, 0.44, 0.45, 0.06).fill(DOOR);
     // Gable roof.
-    g.poly([-w / 2 - 0.25, -h * 0.3, 0, -h * 1.35, w / 2 + 0.25, -h * 0.3]).fill(THATCH).stroke({ color: LINE, width: 0.05, alpha: 0.6 });
-    g.poly([0, -h * 1.35, w / 2 + 0.25, -h * 0.3, 0.1, -h * 0.3]).fill({ color: THATCH_DARK, alpha: 0.45 });
+    g.poly([-w / 2 - 0.25, -h * 0.3, 0, -h * 1.35, w / 2 + 0.25, -h * 0.3]).fill(this.thatch).stroke({ color: LINE, width: 0.05, alpha: 0.6 });
+    g.poly([0, -h * 1.35, w / 2 + 0.25, -h * 0.3, 0.1, -h * 0.3]).fill({ color: this.thatchDark, alpha: 0.45 });
     for (let i = 1; i < 8; i++) {
       const t = i / 8;
-      g.moveTo(0, -h * 1.35).lineTo(-w / 2 - 0.25 + (w + 0.5) * t, -h * 0.3).stroke({ color: THATCH_LIGHT, width: 0.03, alpha: 0.35 });
+      g.moveTo(0, -h * 1.35).lineTo(-w / 2 - 0.25 + (w + 0.5) * t, -h * 0.3).stroke({ color: this.thatchLight, width: 0.03, alpha: 0.35 });
     }
     // The store: sacks and a heap of grain that grows with what is held.
     if (fill > 0) {
       const heap = 0.25 + fill * 0.55;
-      g.ellipse(w / 2 + 0.35, 0.75, heap, heap * 0.45).fill(GRAIN).stroke({ color: THATCH_DARK, width: 0.03, alpha: 0.5 });
+      g.ellipse(w / 2 + 0.35, 0.75, heap, heap * 0.45).fill(GRAIN).stroke({ color: this.thatchDark, width: 0.03, alpha: 0.5 });
       for (let i = 0; i < Math.round(fill * 4); i++) {
         g.roundRect(-w / 2 - 0.55 + i * 0.28, 0.55 - (i % 2) * 0.12, 0.3, 0.36, 0.1).fill(0xc8a46a).stroke({ color: LINE, width: 0.025, alpha: 0.5 });
       }
@@ -288,10 +311,10 @@ export class StructureSprite extends Container {
       g.roundRect(-w / 2 - 0.2, 0.7 - i * 0.14, 1.2, 0.14, 0.07).fill(0x8a5e32).stroke({ color: LINE, width: 0.02, alpha: 0.6 });
     }
     // Lean-to roof.
-    g.poly([-w / 2 - 0.3, -0.35, w / 2 + 0.3, -0.35, w / 2 + 0.15, -1.1, -w / 2 - 0.15, -1.1]).fill(THATCH).stroke({ color: LINE, width: 0.05, alpha: 0.6 });
+    g.poly([-w / 2 - 0.3, -0.35, w / 2 + 0.3, -0.35, w / 2 + 0.15, -1.1, -w / 2 - 0.15, -1.1]).fill(this.thatch).stroke({ color: LINE, width: 0.05, alpha: 0.6 });
     for (let i = 1; i < 10; i++) {
       const x = -w / 2 - 0.2 + ((w + 0.4) * i) / 10;
-      g.moveTo(x, -1.08).lineTo(x + 0.05, -0.38).stroke({ color: i % 2 ? THATCH_DARK : THATCH_LIGHT, width: 0.03, alpha: 0.4 });
+      g.moveTo(x, -1.08).lineTo(x + 0.05, -0.38).stroke({ color: i % 2 ? this.thatchDark : this.thatchLight, width: 0.03, alpha: 0.4 });
     }
   }
 
@@ -367,4 +390,19 @@ export class StructureSprite extends Container {
       g.circle(R * 0.8 + 0.9, y + 0.08, 0.08).fill(0xd8a868);
     }
   }
+}
+
+function hslToHex(h: number, s: number, l: number): number {
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number): number => {
+    const k = (n + h * 12) % 12;
+    return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+  };
+  return (f(0) << 16) | (f(8) << 8) | f(4);
+}
+
+function mix(a: number, b: number, t: number): number {
+  const ch = (c: number, shift: number): number => (c >> shift) & 255;
+  const m = (shift: number): number => Math.round(ch(a, shift) + (ch(b, shift) - ch(a, shift)) * t);
+  return (m(16) << 16) | (m(8) << 8) | m(0);
 }

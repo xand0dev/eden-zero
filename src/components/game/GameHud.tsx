@@ -51,6 +51,29 @@ export function EraChip(): JSX.Element | null {
   );
 }
 
+/** The current age and its omen; opens the Book of Life. */
+export function AgeChip(): JSX.Element | null {
+  const view = useSim().game;
+  if (!view) return null;
+  const { age } = view;
+  const [now, target] = age.progress;
+  return (
+    <button
+      className={`age-chip ${age.omenMet ? 'met' : ''}`}
+      onClick={() => game.openJournal('life')}
+      title={`${age.title} — ${age.text} Omen: ${age.omen} (B)`}
+    >
+      <span className="age-index">{age.index}</span>
+      <span className="age-name">{age.title.replace('The Age of ', '')}</span>
+      {age.index > 1 ? (
+        <span className="era-progress">
+          <i style={{ width: `${age.omenMet ? 100 : Math.min(100, (now / Math.max(1, target)) * 100)}%` }} />
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 export function SeasonChip(): JSX.Element | null {
   const view = useSim().game;
   if (!view) return null;

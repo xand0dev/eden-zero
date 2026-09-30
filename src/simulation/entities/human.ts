@@ -266,6 +266,11 @@ export class Human {
 
   // behaviour bookkeeping ----------------------------------------------
   actionIndex = 0;
+  /** The people this person belongs to (v3, see game/peoples.ts); a child is its mother's. */
+  people = 1;
+  /** Where this person spends their days: a slow average of position (bookkeeping only). */
+  hauntX = NaN;
+  hauntY = NaN;
   actionStrength = 0;
   currentAction = 'Idle';
   currentFocus = 'none';
@@ -1773,6 +1778,8 @@ export class Human {
       lastValenceValue: this.lastValenceValue,
       memory: this.memory.serialize(),
       brain: this.brain.serialize(),
+      people: this.people,
+      haunt: [this.hauntX, this.hauntY],
       growth: this.brain.serializeGrowth(),
       growthState: this.brain.serializeGrowthState(),
       rngState: this.rng.getState(),
@@ -1808,6 +1815,10 @@ export class Human {
     human.matingCooldown = data.matingCooldown as number;
     human.recovery = data.recovery as number;
     human.house = (data.house as number) ?? 0;
+    human.people = (data.people as number) ?? 1;
+    const haunt = data.haunt as [number, number] | undefined;
+    human.hauntX = haunt && Number.isFinite(haunt[0]) ? haunt[0] : NaN;
+    human.hauntY = haunt && Number.isFinite(haunt[1]) ? haunt[1] : NaN;
     human.wood = (data.wood as number) ?? 0;
     human.lastBirthTick = (data.lastBirthTick as number) ?? -1e9;
     human.pendingPulse = (data.pendingPulse as number) ?? 0;

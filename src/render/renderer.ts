@@ -611,7 +611,11 @@ export class WorldRenderer {
       seen.add(data.id);
       let sprite = this.structures.get(data.id);
       if (!sprite) {
-        sprite = new StructureSprite(data.id * 0.618, data.kind ?? 0);
+        sprite = new StructureSprite(
+          data.id * 0.618,
+          data.kind ?? 0,
+          data.styleHue !== undefined ? { hue: data.styleHue, roof: data.styleRoof ?? 0 } : undefined,
+        );
         sprite.position.set(data.x, data.y);
         this.structureLayer.addChild(sprite);
         this.structures.set(data.id, sprite);

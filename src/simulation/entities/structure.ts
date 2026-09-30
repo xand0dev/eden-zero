@@ -74,6 +74,11 @@ export interface StructureData {
   kind?: number;
   /** Food held, for a granary. */
   store?: number;
+  /** The people whose builder staked it (v3): its style is theirs. */
+  people?: number;
+  /** That people's building colour (hue) and roof shape, for the renderer. */
+  styleHue?: number;
+  styleRoof?: number;
 }
 
 export class Structure {
@@ -89,6 +94,8 @@ export class Structure {
   kind: number = StructureKind.Hut;
   /** Food held in a granary. Zero for everything else. */
   store = 0;
+  /** The people whose builder staked it; 0 before peoples existed. */
+  people = 0;
 
   constructor(id: number, x: number, y: number, kind: number = StructureKind.Hut) {
     this.id = id;
@@ -140,12 +147,14 @@ export class Structure {
       builderName: this.builderName,
       ...(this.kind !== StructureKind.Hut ? { kind: this.kind } : {}),
       ...(this.store > 0 ? { store: this.store } : {}),
+      ...(this.people > 0 ? { people: this.people } : {}),
     };
   }
 
   static fromData(data: StructureData): Structure {
     const structure = new Structure(data.id, data.x, data.y, data.kind ?? StructureKind.Hut);
     structure.store = data.store ?? 0;
+    structure.people = data.people ?? 0;
     structure.wood = data.wood;
     structure.required = data.required;
     structure.complete = data.complete;

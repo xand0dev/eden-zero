@@ -37,7 +37,7 @@ export interface GameUiState {
   /** Automatic slow-down on important moments. */
   autoSlow: boolean;
   /** The journal drawer and which tab it shows. */
-  journal: null | 'chronicle' | 'atlas' | 'codex' | 'vault' | 'lab';
+  journal: null | 'chronicle' | 'atlas' | 'codex' | 'vault' | 'lab' | 'life';
   /** Set when a campaign ends (extinction, a city, or the observer closes it). */
   summary: null | { reason: 'extinct' | 'city' | 'closed' | 'challenge' | 'daily'; medal?: Medal | null; score?: number };
   /** A challenge medal earned this session. */

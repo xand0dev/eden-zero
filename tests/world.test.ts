@@ -1,3 +1,4 @@
+import { SNAPSHOT_META_STRIDE } from '../src/shared/types';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_WORLD_OPTIONS, World } from '../src/simulation/world';
 import { LifeStage, Sex } from '../src/shared/types';
@@ -282,7 +283,7 @@ describe('observability', () => {
     });
     expect(snapshot.ids.length).toBe(snapshot.count);
     expect(snapshot.floats.length).toBe(snapshot.count * 12);
-    expect(snapshot.meta.length).toBe(snapshot.count * 5);
+    expect(snapshot.meta.length).toBe(snapshot.count * SNAPSHOT_META_STRIDE);
     expect(snapshot.stats.population).toBe(world.humans.length);
   });
 });

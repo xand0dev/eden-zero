@@ -17,7 +17,9 @@ export type ChronicleKind =
   | 'discovery'
   | 'epithet'
   | 'milestone'
-  | 'observer';
+  | 'observer'
+  | 'people'
+  | 'age';
 
 export interface ChronicleEntry {
   id: number;

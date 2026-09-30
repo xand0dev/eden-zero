@@ -12,7 +12,7 @@ import { readAutosave, readManualSlot, unwrapSave, writeManualSlot, wrapSave, do
 import { getWorld, putWorld } from '../simulation/persistence/store';
 import type { GodCommandKind } from '../shared/protocol';
 import { game, useGameUi } from '../ui/game';
-import { CrisisBanner, DirectorCaption, EraChip, FavourMeter, GoalCard, SeasonChip, Toasts } from './game/GameHud';
+import { CrisisBanner, DirectorCaption, AgeChip, EraChip, FavourMeter, GoalCard, SeasonChip, Toasts } from './game/GameHud';
 import { Journal } from './game/Journal';
 import { Summary } from './game/Summary';
 import { FirstDawn } from './game/FirstDawn';
@@ -297,6 +297,10 @@ export function WorldScreen({
         case 'D':
           game.setDirector(!game.getSnapshot().director);
           break;
+        case 'b':
+        case 'B':
+          game.openJournal('life');
+          break;
         case 'g':
         case 'G':
           rendererRef.current?.toggleGrid();
@@ -389,6 +393,7 @@ export function WorldScreen({
           </div>
           <EraChip />
           <SeasonChip />
+          <AgeChip />
           <div className="stat-strip">
             <span>
               pop <b>{stats?.population ?? 0}</b>

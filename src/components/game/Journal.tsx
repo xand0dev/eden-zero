@@ -7,6 +7,7 @@ import { decodeGenome, encodeGenome, updateProfile, VAULT_LIMIT, VAULT_PER_WORLD
 import { CRISES } from '../../simulation/game/crises';
 import { BrainScope } from '../../render/brainScope';
 import type { BrainView, ChronicleView } from '../../shared/types';
+import { RULES_OF_CREATION } from '../../simulation/genesis/rules';
 
 const TABS = [
   ['chronicle', 'Chronicle', 'C'],
@@ -14,6 +15,7 @@ const TABS = [
   ['codex', 'Codex', 'K'],
   ['vault', 'Vault', 'V'],
   ['lab', 'Neuro-lab', 'N'],
+  ['life', 'Book of Life', 'B'],
 ] as const;
 
 /** The journal drawer: everything the observer has learned about this world and all others. */
@@ -39,6 +41,7 @@ export function Journal(): JSX.Element | null {
         {ui.journal === 'codex' ? <CodexTab /> : null}
         {ui.journal === 'vault' ? <VaultTab /> : null}
         {ui.journal === 'lab' ? <LabTab /> : null}
+        {ui.journal === 'life' ? <LifeTab /> : null}
       </div>
     </div>
   );
@@ -493,6 +496,93 @@ function LabTab(): JSX.Element {
           <li>Pin two siblings and compare: same parents, different lives, different brains.</li>
         </ul>
       </div>
+    </div>
+  );
+}
+
+// --- book of life ------------------------------------------------------------------
+
+/**
+ * What the Rules of Creation have made in this world: the age it is in, the
+ * peoples it has produced, the skills its brains have grown — and the rules
+ * themselves, which are all that was written.
+ */
+function LifeTab(): JSX.Element {
+  const view = useSim().game;
+  if (!view) return <div className="muted">No world is running.</div>;
+  const { age } = view;
+  const living = view.peoples.filter((p) => !p.extinct);
+  const gone = view.peoples.filter((p) => p.extinct);
+  return (
+    <div className="life-tab">
+      <section className="life-age">
+        <div className="life-kicker">Age {age.index}</div>
+        <h2>
+          {age.title} <span className="muted">— {age.name}</span>
+        </h2>
+        <p>{age.text}</p>
+        <div className={`omen ${age.omenMet ? 'met' : ''}`}>
+          <span>Omen: {age.omen}</span>
+          <b>{age.omenMet ? 'fulfilled' : `${age.progress[0]} / ${age.progress[1]}`}</b>
+        </div>
+        <div className="muted small">
+          {age.yearsLeft.toFixed(1)} years left in this age · omens fulfilled in this world: {age.omensMet}
+        </div>
+      </section>
+
+      <section>
+        <h3>Peoples · {living.length} living, {gone.length} gone</h3>
+        <ul className="people-list">
+          {[...living, ...gone].map((p) => (
+            <li key={p.id} className={p.extinct ? 'gone' : ''}>
+              <i className="people-swatch" style={{ background: `hsl(${Math.round(p.hue * 360)} 60% 52%)` }} />
+              <div>
+                <b>The {p.name}</b>{' '}
+                <span className="muted">
+                  {p.extinct ? 'gone' : `${p.members} living`} · named year {p.year}
+                  {p.parentName ? ` · ${p.origin === 'became' ? 'once the' : 'parted from the'} ${p.parentName}` : ''}
+                </span>
+                <div className="small">{p.look}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section>
+        <h3>Book of skills · {view.skillCount} grown in this world</h3>
+        {view.skillBook.length === 0 ? (
+          <div className="muted small">No brain has grown a neuron yet.</div>
+        ) : (
+          <ul className="skill-book">
+            {view.skillBook.map((skill) => (
+              <li key={skill.name + skill.sentence}>
+                <b>{skill.name}</b> <span className="muted small">×{skill.count} · first {skill.firstName}, year {skill.year}</span>
+                <div className="small">{skill.sentence}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <h3>Rules of Creation</h3>
+        <p className="muted small">
+          Nothing else was written. Every behaviour, skill, instinct, people and age above came out of these rules while
+          the world ran.
+        </p>
+        <ol className="creation-rules">
+          {RULES_OF_CREATION.map((r) => (
+            <li key={r.id}>
+              <span className="rule-numeral">{r.numeral}</span>
+              <div>
+                <b>{r.name}.</b> {r.rule}
+                <div className="muted small">→ {r.yields}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
     </div>
   );
 }

@@ -49,6 +49,7 @@ export const FAVOUR_REWARDS = {
   crisisBase: 60,
   crisisPerSeverity: 60,
   era: 50,
+  omen: 45,
 };
 
 export interface FavourState {

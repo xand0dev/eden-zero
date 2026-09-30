@@ -209,7 +209,41 @@ export interface ChronicleView {
 }
 
 /** The game layer, as the client sees it on every snapshot. Small on purpose. */
+/** The current age (v3): endless, generated from the seed. */
+export interface AgeView {
+  index: number;
+  name: string;
+  title: string;
+  text: string;
+  omen: string;
+  progress: [number, number];
+  omenMet: boolean;
+  omensMet: number;
+  /** Years left in this age. */
+  yearsLeft: number;
+}
+
+/** A people the world has made (v3). */
+export interface PeopleView {
+  id: number;
+  name: string;
+  members: number;
+  extinct: boolean;
+  origin: 'genesis' | 'diverged' | 'became';
+  parentName: string | null;
+  look: string;
+  hue: number;
+  /** Year it was named. */
+  year: number;
+}
+
 export interface GameView {
+  age: AgeView;
+  peoples: PeopleView[];
+  /** Distinct skills grown in this world. */
+  skillCount: number;
+  /** The most-grown skills, for the Book of Life. */
+  skillBook: Array<{ name: string; sentence: string; count: number; firstName: string; year: number }>;
   mode: string;
   biome: string;
   charter: string[];
@@ -318,6 +352,10 @@ export interface StructureView {
   /** 0 hut, 1 granary, 2 well, 3 workshop, 4 stone house, 5 palisade, 6 shrine. */
   kind?: number;
   store?: number;
+  /** The builder's people (v3) and its building style. */
+  people?: number;
+  styleHue?: number;
+  styleRoof?: number;
 }
 
 export interface SocialRecordView {
