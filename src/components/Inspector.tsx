@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { sim, useSim, formatAge, stageName } from '../ui/sim';
 import { MOTOR_COUNT, MOTOR_NAMES, MOTOR_START } from '../simulation/brain/channels';
 import { BrainScope } from '../render/brainScope';
+import type { HumanDetail } from '../shared/types';
 
 /**
  * Human inspector: physiology, relationships, live brain and the
@@ -238,8 +239,51 @@ export function Inspector(): JSX.Element {
         </div>
       </div>
 
+      <SkillsPanel detail={detail} />
       <BrainPanel />
       <WhyPanel />
+    </div>
+  );
+}
+
+/**
+ * Neurons this brain grew, and instincts it was born with. Each is a rule
+ * nobody wrote: the senses it listens to and the muscle it drives or holds back.
+ */
+function SkillsPanel({ detail }: { detail: HumanDetail }): JSX.Element {
+  const skills = detail.skills;
+  return (
+    <div className="panel skills-panel">
+      <h3>
+        Grown neurons <span className="dim">{skills.length} / {detail.growthCapacity}</span>
+      </h3>
+      {skills.length === 0 ? (
+        <div className="note">
+          Nothing grown yet. At a moment that matters — a sharp gain or loss — a brain with room grows a
+          neuron that ties what it sensed to what it was doing.
+        </div>
+      ) : (
+        <ul className="skill-list">
+          {skills.map((skill) => (
+            <li key={skill.index} className={skill.sign > 0 ? 'drive' : 'curb'}>
+              <div className="skill-head">
+                <b>{skill.name}</b>
+                <span className="dim">
+                  {skill.generations > 0
+                    ? `instinct · ${skill.generations} gen${skill.generations > 1 ? 's' : ''}`
+                    : (skill.grownDaysAgo ?? 0) < 1
+                      ? 'grown today'
+                      : `grown ${Math.round(skill.grownDaysAgo ?? 0)} d ago`}
+                </span>
+              </div>
+              <div className="skill-text">{skill.sentence}</div>
+              <div className="skill-bar">
+                <span style={{ width: `${Math.round(skill.activity * 100)}%` }} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

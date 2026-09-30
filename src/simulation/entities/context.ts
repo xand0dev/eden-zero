@@ -1,3 +1,4 @@
+import type { GrownNeuron } from '../brain/network';
 import type { Climate } from '../environment/climate';
 import type { TerrainData } from '../environment/terrain';
 import type { Human } from './human';
@@ -66,6 +67,8 @@ export interface SimWorld {
   noteFeverRecovered(human: Human): void;
   /** A person struck another (bookkeeping only). */
   noteStrike(attacker: Human): void;
+  /** A person's brain grew a neuron (bookkeeping and chronicle only). */
+  noteNeurogenesis?(human: Human, neuron: GrownNeuron): void;
 
   /** World-level deterministic PRNG. */
   random(): number;

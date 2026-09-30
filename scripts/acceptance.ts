@@ -138,7 +138,7 @@ check(
   detail !== null &&
     detail.genome.length > 20 &&
     detail.motor.length === MOTOR_COUNT &&
-    detail.neuronCount === NEURON_COUNT,
+    detail.neuronCount >= NEURON_COUNT,
   `${detail?.genome.length} genes, ${detail?.synapseCount} synapses`,
 );
 const brainView = world.brainView(probeHuman.id);

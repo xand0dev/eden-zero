@@ -1,4 +1,5 @@
 import { Container, Graphics } from 'pixi.js';
+import { looksKey, readLooks, type Looks } from './morph';
 
 /**
  * Procedural creature sprites: people and the predators that hunt them.
@@ -114,23 +115,33 @@ export class HumanoidSprite extends Container {
     if (Math.abs(c) > 0.2) this.targetFacing = c >= 0 ? 1 : -1;
   }
 
-  /** Recolour for a genome. Cheap: the shapes are only redrawn when the colours change. */
-  setAppearance(hue: number, saturation: number, lightness: number): void {
-    const key = Math.round(hue * 1000) * 1e6 + Math.round(saturation * 1000) * 1e3 + Math.round(lightness * 1000);
+  /** Recolour and reshape for a genome. Cheap: the shapes are only redrawn when the looks change. */
+  setAppearance(hue: number, saturation: number, lightness: number, morph?: ArrayLike<number> | null): void {
+    const key =
+      (Math.round(hue * 1000) * 1e6 + Math.round(saturation * 1000) * 1e3 + Math.round(lightness * 1000)) * 7 +
+      looksKey(morph);
     if (key === this.appearanceKey) return;
     this.appearanceKey = key;
     if (this.options.predator) this.drawBeast(hue, saturation, lightness);
-    else this.drawPerson(hue, saturation, lightness);
+    else this.drawPerson(hue, saturation, lightness, morph ? readLooks(morph) : null);
   }
 
-  private drawPerson(hue: number, saturation: number, lightness: number): void {
+  private drawPerson(hue: number, saturation: number, lightness: number, looks: Looks | null): void {
     const tunic = hslToHex(hue, Math.min(0.62, saturation * 0.78), clamp(0.26 + lightness * 0.42, 0.3, 0.62));
     const tunicDark = shade(tunic, 0.62);
     const tunicLight = shade(tunic, 1.22);
     const pick = fract(hue * 7.13 + lightness * 3.1 + saturation * 1.7);
     const skin = SKIN[Math.floor(pick * SKIN.length) % SKIN.length];
     const skinDark = shade(skin, 0.78);
-    const hair = HAIR[Math.floor(fract(hue * 3.7 + saturation * 5.3) * HAIR.length) % HAIR.length];
+    const hair = looks ? looks.hair : HAIR[Math.floor(fract(hue * 3.7 + saturation * 5.3) * HAIR.length) % HAIR.length];
+    // Build widens the shoulders and hips; head shape stretches the skull.
+    const b = looks ? looks.build : 1;
+    const headRx = 0.105 * (looks ? 1.1 - 0.2 * looks.headShape : 1);
+    const headRy = 0.105 * (looks ? 0.9 + 0.22 * looks.headShape : 1);
+    this.armLeft.position.set(-0.155 * b, -0.73);
+    this.armRight.position.set(0.155 * b, -0.73);
+    this.legLeft.position.set(-0.07 * b, -0.44);
+    this.legRight.position.set(0.07 * b, -0.44);
     const trousers = shade(hslToHex(hue + 0.08, 0.18, 0.28), 1);
     const line = 0x14100c;
 
@@ -157,30 +168,108 @@ export class HumanoidSprite extends Container {
     // Tunic: rounded shoulders, a belted waist, a flared hem.
     const t = this.torso;
     t.clear();
-    t.poly([-0.15, -0.78, 0.15, -0.78, 0.17, -0.7, 0.13, -0.48, 0.17, -0.34, -0.17, -0.34, -0.13, -0.48, -0.17, -0.7])
+    const X = (v: number): number => v * b;
+    t.poly([X(-0.15), -0.78, X(0.15), -0.78, X(0.17), -0.7, X(0.13), -0.48, X(0.17), -0.34, X(-0.17), -0.34, X(-0.13), -0.48, X(-0.17), -0.7])
       .fill(tunic)
       .stroke({ color: line, width: 0.016, alpha: 0.55, join: 'round' });
     // Shade the side away from the light, catch the light on the other.
-    t.poly([0.02, -0.78, 0.15, -0.78, 0.17, -0.7, 0.13, -0.48, 0.17, -0.34, 0.03, -0.34]).fill({ color: tunicDark, alpha: 0.5 });
-    t.poly([-0.14, -0.77, -0.08, -0.77, -0.1, -0.5, -0.13, -0.5]).fill({ color: tunicLight, alpha: 0.45 });
-    t.rect(-0.14, -0.5, 0.28, 0.035).fill(0x5a3a1e);
+    t.poly([0.02, -0.78, X(0.15), -0.78, X(0.17), -0.7, X(0.13), -0.48, X(0.17), -0.34, 0.03, -0.34]).fill({ color: tunicDark, alpha: 0.5 });
+    t.poly([X(-0.14), -0.77, X(-0.08), -0.77, X(-0.1), -0.5, X(-0.13), -0.5]).fill({ color: tunicLight, alpha: 0.45 });
+    if (looks) this.drawPaint(t, looks, b);
+    t.rect(X(-0.14), -0.5, X(0.28), 0.035).fill(0x5a3a1e);
     t.rect(-0.02, -0.5, 0.04, 0.035).fill(0xc9a45a);
     // Neck.
     t.rect(-0.035, -0.83, 0.07, 0.06).fill(skinDark);
+    if (looks?.ornament === 'beads') {
+      for (let i = 0; i < 7; i++) {
+        const a = Math.PI * (0.15 + (i / 6) * 0.7);
+        t.circle(Math.cos(a) * 0.075, -0.8 + Math.sin(a) * 0.05, 0.016).fill(i % 2 ? looks.paintColor : 0xe8d8b0);
+      }
+    }
 
     const h = this.head;
     h.clear();
-    h.circle(0, -0.9, 0.105).fill(skin).stroke({ color: line, width: 0.014, alpha: 0.5 });
+    const style = looks?.hairStyle ?? 'cropped';
+    // Hair that falls behind the head is drawn first.
+    if (style === 'long') h.roundRect(-0.1, -0.95, 0.15, 0.25, 0.06).fill(shade(hair, 0.85));
+    if (style === 'braided') {
+      for (let i = 0; i < 4; i++) h.ellipse(-0.085, -0.84 + i * 0.055, 0.028, 0.032).fill(i % 2 ? hair : shade(hair, 0.8));
+    }
+    h.ellipse(0, -0.9, headRx, headRy).fill(skin).stroke({ color: line, width: 0.014, alpha: 0.5 });
     // Seen from above: the crown of the head is mostly hair.
-    h.ellipse(-0.012, -0.935, 0.108, 0.082).fill(hair);
-    h.ellipse(-0.06, -0.9, 0.05, 0.07).fill(hair);
+    if (style === 'shorn') {
+      h.ellipse(-0.01, -0.94, headRx * 0.95, headRy * 0.62).fill({ color: hair, alpha: 0.45 });
+    } else {
+      h.ellipse(-0.012, -0.935, headRx * 1.03, headRy * 0.78).fill(hair);
+      h.ellipse(-0.06, -0.9, 0.05, 0.07).fill(hair);
+    }
+    if (style === 'crested') {
+      h.poly([-0.07, -0.97, -0.03, -1.07, 0.01, -0.99, 0.04, -1.06, 0.07, -0.96]).fill(hair).stroke({ color: line, width: 0.01, alpha: 0.4 });
+    }
+    if (style === 'knotted') h.circle(-0.02, -0.9 - headRy - 0.03, 0.045).fill(hair).stroke({ color: line, width: 0.01, alpha: 0.4 });
     // Face toward the direction of travel (the sprite mirrors), lit on the left.
     h.ellipse(0.035, -0.875, 0.05, 0.045).fill({ color: shade(skin, 1.08), alpha: 0.9 });
     h.circle(0.06, -0.885, 0.011).fill(0x1a1410);
+    if (looks && looks.paint !== 'none') {
+      // A stroke of the same paint across the cheek.
+      h.rect(0.02, -0.865, 0.05, 0.012).fill({ color: looks.paintColor, alpha: 0.85 });
+    }
+    if (looks) this.drawOrnament(h, looks, headRx, headRy);
 
     this.belly.clear();
     this.belly.ellipse(0.05, -0.5, 0.13, 0.11).fill(tunic).stroke({ color: line, width: 0.014, alpha: 0.45 });
     this.belly.ellipse(0.02, -0.53, 0.06, 0.05).fill({ color: tunicLight, alpha: 0.4 });
+  }
+
+  /** Body paint on the tunic's front: stripes, dots, a band or chevrons. */
+  private drawPaint(t: Graphics, looks: Looks, b: number): void {
+    const c = { color: looks.paintColor, alpha: 0.85 };
+    switch (looks.paint) {
+      case 'stripes':
+        for (let i = 0; i < 3; i++) t.rect(-0.11 * b, -0.74 + i * 0.07, 0.22 * b, 0.018).fill(c);
+        break;
+      case 'dots':
+        for (let i = 0; i < 6; i++) t.circle((-0.08 + (i % 3) * 0.08) * b, -0.72 + Math.floor(i / 3) * 0.09, 0.018).fill(c);
+        break;
+      case 'band':
+        t.poly([-0.14 * b, -0.76, -0.08 * b, -0.76, 0.13 * b, -0.52, 0.07 * b, -0.52]).fill(c);
+        break;
+      case 'chevrons':
+        for (let i = 0; i < 2; i++) {
+          const y = -0.74 + i * 0.1;
+          t.moveTo(-0.1 * b, y).lineTo(0, y + 0.06).lineTo(0.1 * b, y).stroke({ ...c, width: 0.022 });
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** Headwear and adornment. */
+  private drawOrnament(h: Graphics, looks: Looks, rx: number, ry: number): void {
+    const line = 0x14100c;
+    const top = -0.9 - ry;
+    switch (looks.ornament) {
+      case 'feather':
+        h.ellipse(-0.07, top - 0.06, 0.022, 0.08).fill(looks.paintColor).stroke({ color: line, width: 0.008, alpha: 0.5 });
+        h.moveTo(-0.07, top + 0.02).lineTo(-0.07, top - 0.13).stroke({ color: 0xf0e6d0, width: 0.008 });
+        break;
+      case 'headband':
+        h.rect(-rx, -0.93, rx * 2, 0.026).fill(looks.paintColor);
+        break;
+      case 'horns':
+        h.poly([-rx * 0.7, top + 0.03, -rx * 1.05, top - 0.09, -rx * 0.35, top + 0.01]).fill(0xe9dcc0).stroke({ color: line, width: 0.008, alpha: 0.5 });
+        h.poly([rx * 0.7, top + 0.03, rx * 1.05, top - 0.09, rx * 0.35, top + 0.01]).fill(0xe9dcc0).stroke({ color: line, width: 0.008, alpha: 0.5 });
+        break;
+      case 'flowers':
+        for (let i = 0; i < 5; i++) {
+          const a = Math.PI * (1.1 + (i / 4) * 0.8);
+          h.circle(Math.cos(a) * rx, -0.9 + Math.sin(a) * ry * 0.95, 0.022).fill(i % 2 ? 0xf6d34a : looks.paintColor);
+        }
+        break;
+      default:
+        break;
+    }
   }
 
   private drawBeast(hue: number, saturation: number, lightness: number): void {
@@ -256,8 +345,9 @@ export class HumanoidSprite extends Container {
     hue: number,
     saturation: number,
     lightness: number,
+    morph?: ArrayLike<number> | null,
   ): void {
-    this.setAppearance(hue, saturation, lightness);
+    this.setAppearance(hue, saturation, lightness, morph);
 
     const moving = Math.abs(speed) > 0.15;
     const strideRate = moving ? Math.min(13, 3.4 + Math.abs(speed) * 2.4) : 2;

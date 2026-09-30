@@ -4,6 +4,9 @@ import { BRAIN_DT, BRAIN_SUBSTEPS } from '../../shared/constants';
 import { TUNING } from '../game/tuning';
 import type { Genome } from '../genetics/genome';
 import {
+  BRAIN_SLOTS,
+  GROWN_START,
+  GROWTH_CAPACITY,
   LOCAL_COUNT,
   LOCAL_START,
   M,
@@ -99,6 +102,77 @@ const WEIGHT_DECAY = 4e-6;
 const PLASTICITY_THRESHOLD = 0.1;
 /** Ticks between homeostatic synaptic scaling passes. */
 const HOMEOSTASIS_INTERVAL = 120;
+
+// --- neurogenesis (v3) -------------------------------------------------------
+//
+// The second Rule of Creation (genesis/rules.ts): at a moment that matters —
+// a sharp swing in how the body is doing — a brain with room to spare grows one
+// new neuron. Its inputs are the senses that were loudest at that moment, its
+// output is the muscle that was acting, and the sign of the swing decides
+// whether it drives that muscle or holds it back. It is one-shot learning of a
+// context -> action rule that nobody wrote, and from then on it is an ordinary
+// plastic neuron: learning reshapes it, and if it stops earning its keep it is
+// pruned and its slot freed.
+
+/** |valence| that counts as a moment worth remembering. */
+export const GROWTH_VALENCE = 0.5;
+/** Ticks between two growths in one brain (20 s at 20 Hz). */
+export const GROWTH_COOLDOWN = 400;
+/** Senses a grown neuron listens to. */
+const GROWN_INPUTS = 3;
+/** Below this rate a sense is not part of the moment. */
+const GROWN_INPUT_FLOOR = 0.15;
+/** Drive a grown neuron receives when its moment recurs exactly. */
+const GROWN_DRIVE = 1.35;
+/** Tonic bias of a grown neuron: quiet until its inputs line up. */
+const GROWN_BIAS = 0.15;
+/** Birth weight of a grown neuron's synapse onto its muscle. */
+const GROWN_OUT = 0.55;
+/** Per-tick decay of a grown neuron's running credit (half-life ~70 s). */
+const UTILITY_DECAY = 0.9995;
+/** A grown neuron is not judged before this many ticks (one simulated day). */
+const PRUNE_MIN_AGE = 2400;
+/** Ticks between pruning passes. */
+const PRUNE_INTERVAL = 200;
+/** Credit below which a neuron is pruned. */
+const PRUNE_UTILITY = -0.4;
+/** An output this weak does nothing any more. */
+const PRUNE_WEIGHT = 0.08;
+/** Credit a neuron needs for its wiring to be passed to a child as an instinct. */
+export const INSTINCT_UTILITY = 0.15;
+/** Instincts a genome carries at most. */
+export const MAX_INSTINCTS = 4;
+/** Numbers per instinct in `Genome.instincts`. */
+export const INSTINCT_STRIDE = 9;
+/** Per-tick adaptation of the sense baseline (time constant ~25 s). */
+const BASELINE_ADAPT = 0.002;
+/** Default neurogenesis gene for genomes that predate it. */
+const DEFAULT_NEUROGENESIS = 0.4;
+
+/**
+ * Senses that never make up a moment: the noise channel (it is noise), the
+ * standing capabilities (seed in hand is always on) and the slow settlement-wide
+ * signals, which would tie a skill to an era rather than to a situation.
+ */
+const NOT_A_CONTEXT = new Set<number>([S.noise, S.seeds, S.settlementStage, S.storedFood, S.light, S.health, S.energy]);
+
+/** A neuron a brain grew, or was born with because an ancestor grew it. */
+export interface GrownNeuron {
+  /** Presynaptic sensory neurons, loudest first. */
+  inputs: number[];
+  /** Birth weights of those inputs. */
+  inW: number[];
+  /** Motor index, 0..16. */
+  motor: number;
+  /** Birth weight onto the motor; its sign is the skill's direction. */
+  outW: number;
+  /** World tick it grew at; -1 for an instinct present from birth. */
+  born: number;
+  /** 0 if grown in this life; k if inherited through k generations. */
+  generations: number;
+  /** Running credit: how often it was active when things went the way it pushes. */
+  utility: number;
+}
 
 /**
  * Innate low-level reflexes.
@@ -362,22 +436,23 @@ export interface BrainTopologyStats {
 }
 
 export class Brain {
-  readonly n = NEURON_COUNT;
+  /** Neuron slots: the 341 of the core plus room for grown neurons. */
+  readonly n = BRAIN_SLOTS;
 
   /** Membrane potential. */
-  readonly v = new Float32Array(NEURON_COUNT);
+  readonly v = new Float32Array(BRAIN_SLOTS);
   /** Refractory countdown in sub-steps. */
-  readonly refrac = new Float32Array(NEURON_COUNT);
+  readonly refrac = new Float32Array(BRAIN_SLOTS);
   /** Current spike flags (0/1) for spiking neurons. */
-  readonly spike = new Float32Array(NEURON_COUNT);
+  readonly spike = new Float32Array(BRAIN_SLOTS);
   /**
    * What this neuron actually transmits down its axons this sub-step.
    * For sensory neurons this is the graded stimulus intensity; for everything
    * else it is the binary spike flag.
    */
-  readonly transmit = new Float32Array(NEURON_COUNT);
+  readonly transmit = new Float32Array(BRAIN_SLOTS);
   /** Smoothed firing rate — this is what the brain viewer displays. */
-  readonly rate = new Float32Array(NEURON_COUNT);
+  readonly rate = new Float32Array(BRAIN_SLOTS);
   /**
    * Spikes fired since the observer last read them, per neuron.
    *
@@ -386,7 +461,7 @@ export class Brain {
    * which is what lets the brain viewer draw the impulses that actually fired
    * rather than impulses implied by a rate.
    */
-  readonly spikeCount = new Uint32Array(NEURON_COUNT);
+  readonly spikeCount = new Uint32Array(BRAIN_SLOTS);
   /**
    * Integrated synaptic drive of each motor neuron (last sub-step).
    *
@@ -400,9 +475,9 @@ export class Brain {
    */
   readonly motorDrive = new Float32Array(MOTOR_COUNT);
   /** Tonic bias current. */
-  readonly bias = new Float32Array(NEURON_COUNT);
+  readonly bias = new Float32Array(BRAIN_SLOTS);
   /** Membrane time constant per neuron, seconds. */
-  readonly tau = new Float32Array(NEURON_COUNT);
+  readonly tau = new Float32Array(BRAIN_SLOTS);
 
   // Sparse synapse storage.
   synCount = 0;
@@ -425,7 +500,7 @@ export class Brain {
   initialInStrength!: Float32Array;
 
   /** Scratch buffer for input currents (avoids per-tick allocation). */
-  private readonly current = new Float32Array(NEURON_COUNT);
+  private readonly current = new Float32Array(BRAIN_SLOTS);
 
   /**
    * Slowly-adapting global inhibitory pool.
@@ -454,8 +529,40 @@ export class Brain {
    */
   innateStart = 0;
 
+  /** Synapses of the core network; grown neurons' synapses follow. */
+  coreSynCount = 0;
+  /** Neurons grown or inherited, packed from `GROWN_START`. */
+  readonly grown: GrownNeuron[] = [];
+  /** How many grown neurons this brain has room for, from the genome. */
+  growthCapacity = 0;
+  private lastGrowthTick = -1e9;
+  private pruneCounter = 0;
+  /**
+   * Slow running average of each sense. A moment is made of the senses that
+   * stand out against it — thirst and water ahead at the instant of drinking —
+   * not of the ones that are always on in a village (kin nearby, a partner
+   * close, wet ground), which would otherwise be part of every skill.
+   */
+  readonly senseBaseline = new Float32Array(SENSORY_COUNT);
+  private tauGrown = 0.024;
+
   constructor(genome: Genome, options: BrainOptions = { innateScale: 1 }) {
     this.build(genome, options.innateScale);
+    this.coreSynCount = this.synCount;
+    const gene = Number.isFinite(genome.neurogenesis) ? genome.neurogenesis : DEFAULT_NEUROGENESIS;
+    this.growthCapacity = genome.species === 0 ? Math.round(GROWTH_CAPACITY * clamp(gene, 0, 1)) : 0;
+    this.tauGrown = 0.024 * clamp(genome.tauScale, 0.7, 1.35);
+    for (const spec of decodeInstincts(genome.instincts)) this.grow(spec);
+  }
+
+  /** Neurons that exist: the core and whatever has grown. */
+  get neuronCount(): number {
+    return NEURON_COUNT + this.grown.length;
+  }
+
+  /** One past the last live neuron slot. */
+  get activeEnd(): number {
+    return GROWN_START + this.grown.length;
   }
 
   // ---------------------------------------------------------------------
@@ -485,7 +592,7 @@ export class Brain {
     const tauScale = clamp(genome.tauScale, 0.7, 1.35);
 
     // Per-region membrane time constants (seconds).
-    for (let i = 0; i < this.n; i++) {
+    for (let i = 0; i < NEURON_COUNT; i++) {
       const region = regionOf(i);
       const base = region === Region.Sensory ? 0.012 : region === Region.Motor ? 0.02 : 0.024;
       this.tau[i] = base * tauScale;
@@ -496,7 +603,7 @@ export class Brain {
     // the whole brain sits silently at its resting potential. The values here
     // put recurrent tissue just under threshold so that recurrent + sensory
     // input together produce sparse, ongoing firing.
-    for (let i = 0; i < this.n; i++) {
+    for (let i = 0; i < NEURON_COUNT; i++) {
       const region = regionOf(i);
       if (region === Region.Sensory) this.bias[i] = rng.normal(0.04, 0.05);
       // Motor neurons share an identical tonic bias. They are a homogeneous
@@ -708,7 +815,8 @@ export class Brain {
    * @param valence  homeostasis-derived reward signal in [-1, 1]
    */
   step(sensory: Float32Array, valence: number): void {
-    const n = this.n;
+    // Only live slots: the core and the grown neurons, not the empty room after.
+    const n = this.activeEnd;
     const current = this.current;
     const { v, refrac, spike, rate, bias, tau, pre, w, inStart, inSyn, transmit } = this;
 
@@ -773,7 +881,7 @@ export class Brain {
       for (let i = MOTOR_START; i < n; i++) current[i] *= this.modGain;
 
       // 5. Integrate + fire (sensory layer already settled above).
-      for (let i = MOTOR_START; i < n; i++) this.motorDrive[i - MOTOR_START] = current[i];
+      for (let i = MOTOR_START; i < GROWN_START; i++) this.motorDrive[i - MOTOR_START] = current[i];
       for (let i = SENSORY_COUNT; i < n; i++) {
         if (refrac[i] > 0) {
           refrac[i] -= 1;
@@ -902,6 +1010,235 @@ export class Brain {
   }
 
   // ---------------------------------------------------------------------
+  // Neurogenesis
+  // ---------------------------------------------------------------------
+
+  /**
+   * Grow one neuron with the given wiring. False if the brain is full.
+   *
+   * The neuron takes the next free slot; its synapses are appended after every
+   * existing synapse, so the core network and the innate reflexes keep their
+   * indices and the order of grown synapses always follows the order of grown
+   * neurons (which is what lets a save regrow them exactly).
+   */
+  grow(spec: GrownNeuron): boolean {
+    if (this.grown.length >= GROWTH_CAPACITY) return false;
+    const index = GROWN_START + this.grown.length;
+    const k = spec.inputs.length;
+    const total = this.synCount + k + 1;
+    const pre = new Int32Array(total);
+    const post = new Int32Array(total);
+    const w = new Float32Array(total);
+    const elig = new Float32Array(total);
+    const initial = new Float32Array(total);
+    pre.set(this.pre);
+    post.set(this.post);
+    w.set(this.w);
+    elig.set(this.elig);
+    initial.set(this.initialWeights);
+    let s = this.synCount;
+    let inStrength = 0;
+    for (let j = 0; j < k; j++) {
+      const weight = clamp(spec.inW[j], -W_MAX, W_MAX);
+      pre[s] = spec.inputs[j];
+      post[s] = index;
+      w[s] = initial[s] = weight;
+      inStrength += Math.abs(weight);
+      s++;
+    }
+    const target = MOTOR_START + spec.motor;
+    const out = clamp(spec.outW, -W_MAX, W_MAX);
+    pre[s] = index;
+    post[s] = target;
+    w[s] = initial[s] = out;
+    this.pre = pre;
+    this.post = post;
+    this.w = w;
+    this.elig = elig;
+    this.initialWeights = initial;
+    this.synCount = total;
+
+    this.bias[index] = GROWN_BIAS;
+    this.tau[index] = this.tauGrown;
+    this.v[index] = 0;
+    this.refrac[index] = 0;
+    this.spike[index] = 0;
+    this.transmit[index] = 0;
+    this.rate[index] = 0;
+    this.spikeCount[index] = 0;
+    this.buildAdjacency();
+    this.initialInStrength[index] = inStrength;
+    // The muscle's homeostatic set point grows with it, or scaling would shrink
+    // everything else the muscle listens to to make room.
+    this.initialInStrength[target] += Math.abs(out);
+    this.grown.push({ ...spec, inputs: spec.inputs.slice(), inW: spec.inW.slice() });
+    return true;
+  }
+
+  /** Remove grown neuron `k` and its synapses; the neurons after it move down a slot. */
+  prune(k: number): void {
+    const spec = this.grown[k];
+    if (!spec) return;
+    const index = GROWN_START + k;
+    const end = this.activeEnd;
+    let kept = 0;
+    for (let s = 0; s < this.synCount; s++) {
+      if (this.pre[s] === index || this.post[s] === index) continue;
+      this.pre[kept] = this.pre[s] > index ? this.pre[s] - 1 : this.pre[s];
+      this.post[kept] = this.post[s] > index ? this.post[s] - 1 : this.post[s];
+      this.w[kept] = this.w[s];
+      this.elig[kept] = this.elig[s];
+      this.initialWeights[kept] = this.initialWeights[s];
+      kept++;
+    }
+    this.pre = this.pre.slice(0, kept);
+    this.post = this.post.slice(0, kept);
+    this.w = this.w.slice(0, kept);
+    this.elig = this.elig.slice(0, kept);
+    this.initialWeights = this.initialWeights.slice(0, kept);
+    this.synCount = kept;
+    const target = MOTOR_START + spec.motor;
+    this.initialInStrength[target] = Math.max(0, this.initialInStrength[target] - Math.abs(spec.outW));
+    for (let i = index; i < end - 1; i++) {
+      this.v[i] = this.v[i + 1];
+      this.refrac[i] = this.refrac[i + 1];
+      this.spike[i] = this.spike[i + 1];
+      this.transmit[i] = this.transmit[i + 1];
+      this.rate[i] = this.rate[i + 1];
+      this.bias[i] = this.bias[i + 1];
+      this.tau[i] = this.tau[i + 1];
+      this.spikeCount[i] = this.spikeCount[i + 1];
+      this.initialInStrength[i] = this.initialInStrength[i + 1];
+    }
+    const last = end - 1;
+    this.v[last] = this.refrac[last] = this.spike[last] = this.transmit[last] = this.rate[last] = 0;
+    this.bias[last] = this.tau[last] = this.initialInStrength[last] = 0;
+    this.spikeCount[last] = 0;
+    this.grown.splice(k, 1);
+    this.buildAdjacency();
+  }
+
+  /** Remove every grown neuron and grow `specs` instead, in order. Used by a load. */
+  resetGrowth(specs: readonly GrownNeuron[]): void {
+    for (let k = this.grown.length - 1; k >= 0; k--) this.prune(k);
+    for (const spec of specs) this.grow(spec);
+  }
+
+  /** Current weight of grown neuron `k`'s synapse onto its muscle. */
+  grownOutWeight(k: number): number {
+    const index = GROWN_START + k;
+    const target = MOTOR_START + (this.grown[k]?.motor ?? 0);
+    for (let s = this.outStart[index]; s < this.outStart[index + 1]; s++) {
+      const syn = this.outSyn[s];
+      if (this.post[syn] === target) return this.w[syn];
+    }
+    return 0;
+  }
+
+  /**
+   * The neurogenesis rule, run once a tick after plasticity.
+   *
+   * `motor` is the muscle that was acting when this tick's valence arrived.
+   * Returns the neuron grown this tick, or null. Deterministic: no randomness,
+   * only the brain's own state.
+   */
+  considerGrowth(valence: number, motor: number, tick: number): GrownNeuron | null {
+    // Credit: a grown neuron earns when it is active and things go the way it pushes.
+    for (let k = 0; k < this.grown.length; k++) {
+      const g = this.grown[k];
+      const r = this.rate[GROWN_START + k];
+      g.utility = g.utility * UTILITY_DECAY + r * valence * (g.outW >= 0 ? 1 : -1) * 0.05;
+    }
+
+    // Pruning: neurons that stopped earning their keep, or that learning has silenced.
+    if (++this.pruneCounter >= PRUNE_INTERVAL) {
+      this.pruneCounter = 0;
+      for (let k = this.grown.length - 1; k >= 0; k--) {
+        const g = this.grown[k];
+        const age = g.born < 0 ? Infinity : tick - g.born;
+        if (age < PRUNE_MIN_AGE) continue;
+        if (g.utility < PRUNE_UTILITY || Math.abs(this.grownOutWeight(k)) < PRUNE_WEIGHT) this.prune(k);
+      }
+    }
+
+    if (this.growthCapacity === 0) return null;
+    const baseline = this.senseBaseline;
+    for (let i = 0; i < SENSORY_COUNT; i++) baseline[i] += (this.rate[i] - baseline[i]) * BASELINE_ADAPT;
+    if (Math.abs(valence) < GROWTH_VALENCE) return null;
+    if (tick - this.lastGrowthTick < GROWTH_COOLDOWN) return null;
+    if (motor < 0 || motor >= MOTOR_COUNT) return null;
+
+    // The moment: the senses that stand out most against their usual level.
+    const inputs: number[] = [];
+    for (let pick = 0; pick < GROWN_INPUTS; pick++) {
+      let best = -1;
+      let bestSalience = 0.05;
+      for (let i = 0; i < SENSORY_COUNT; i++) {
+        if (NOT_A_CONTEXT.has(i) || inputs.includes(i)) continue;
+        if (this.rate[i] < GROWN_INPUT_FLOOR) continue;
+        const salience = this.rate[i] - baseline[i];
+        if (salience > bestSalience) {
+          bestSalience = salience;
+          best = i;
+        }
+      }
+      if (best < 0) break;
+      inputs.push(best);
+    }
+    if (inputs.length < 2) return null;
+    this.lastGrowthTick = tick;
+    const sign = valence > 0 ? 1 : -1;
+
+    // Already known: the same muscle, the same direction, the same leading sense.
+    for (const g of this.grown) {
+      if (g.motor === motor && Math.sign(g.outW) === sign && g.inputs[0] === inputs[0]) {
+        g.utility += 0.2;
+        return null;
+      }
+    }
+
+    // Full: make room by letting go of the least useful thing grown in this life.
+    if (this.grown.length >= this.growthCapacity) {
+      let worst = -1;
+      let worstUtility = 0;
+      for (let k = 0; k < this.grown.length; k++) {
+        const g = this.grown[k];
+        if (g.born < 0 || tick - g.born < PRUNE_MIN_AGE) continue;
+        if (g.utility < worstUtility) {
+          worstUtility = g.utility;
+          worst = k;
+        }
+      }
+      if (worst < 0) return null;
+      this.prune(worst);
+    }
+
+    let norm = 0;
+    for (const i of inputs) norm += this.rate[i] * this.rate[i];
+    const inW = inputs.map((i) => clamp((GROWN_DRIVE * this.rate[i]) / Math.max(norm, 1e-3), 0.2, W_MAX));
+    const spec: GrownNeuron = { inputs, inW, motor, outW: sign * GROWN_OUT, born: tick, generations: 0, utility: 0 };
+    if (!this.grow(spec)) return null;
+    return this.grown[this.grown.length - 1];
+  }
+
+  /** Grown neurons as plain data, for a save. */
+  serializeGrowth(): GrownNeuron[] {
+    return this.grown.map((g) => ({ ...g, inputs: g.inputs.slice(), inW: g.inW.slice() }));
+  }
+
+  /** The growth rule's own slow state, for a save: without it a restored brain grows at different moments. */
+  serializeGrowthState(): { baseline: string; last: number; prune: number } {
+    return { baseline: float32ToBase64(this.senseBaseline), last: this.lastGrowthTick, prune: this.pruneCounter };
+  }
+
+  restoreGrowthState(state: { baseline?: string; last?: number; prune?: number } | undefined): void {
+    if (!state) return;
+    if (typeof state.baseline === 'string') base64ToFloat32(state.baseline, this.senseBaseline);
+    this.lastGrowthTick = Number.isFinite(state.last) ? (state.last as number) : -1e9;
+    this.pruneCounter = Number.isFinite(state.prune) ? (state.prune as number) : 0;
+  }
+
+  // ---------------------------------------------------------------------
   // Read-out
   // ---------------------------------------------------------------------
 
@@ -982,7 +1319,7 @@ export class Brain {
       if (this.w[s] >= 0) excitatory++;
       else inhibitory++;
     }
-    return { neurons: this.n, synapses: this.synCount, excitatory, inhibitory };
+    return { neurons: this.neuronCount, synapses: this.synCount, excitatory, inhibitory };
   }
 
   /** Mean absolute change from birth weights — proof that learning happened. */
@@ -1075,7 +1412,7 @@ export class Brain {
   }
 
   private serializeValues(): number[] {
-    const n = this.n;
+    const n = this.activeEnd;
     const out = new Array<number>(n * 4 + this.synCount * 2 + 4);
     let k = 0;
     for (let i = 0; i < n; i++) out[k++] = this.v[i];
@@ -1095,14 +1432,16 @@ export class Brain {
     let data: ArrayLike<number> = packed as readonly number[];
     if (typeof packed === 'string') {
       const [bytes, scalars = ''] = packed.split('|');
-      const arrays = decodeFloat32(bytes, this.n * 4 + expectedSynapses * 2);
+      const arrays = decodeFloat32(bytes, this.activeEnd * 4 + expectedSynapses * 2);
       const tail = scalars.split(',').map(Number);
       const all = new Array<number>(arrays.length + 4);
       for (let i = 0; i < arrays.length; i++) all[i] = arrays[i];
       for (let i = 0; i < 4; i++) all[arrays.length + i] = tail[i] ?? 0;
       data = all;
     }
-    const n = this.n;
+    // Live slots only. A save from before neurogenesis has exactly the 341 of
+    // the core, which is what a brain with nothing grown has live.
+    const n = this.activeEnd;
     const expected = n * 4 + expectedSynapses * 2 + 4;
     if (data.length !== expected || expectedSynapses !== this.synCount) return false;
     let k = 0;
@@ -1124,6 +1463,85 @@ export class Brain {
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Grown neurons from a genome's instinct genes. Each instinct is
+ * `INSTINCT_STRIDE` numbers: three inputs (-1 for none), the motor, three input
+ * weights, the output weight and how many generations it has been inherited.
+ * Anything malformed is skipped, so a hand-edited or old genome cannot break a
+ * brain.
+ */
+export function decodeInstincts(genes: readonly number[] | undefined): GrownNeuron[] {
+  const out: GrownNeuron[] = [];
+  if (!Array.isArray(genes)) return out;
+  for (let o = 0; o + INSTINCT_STRIDE <= genes.length && out.length < MAX_INSTINCTS; o += INSTINCT_STRIDE) {
+    const inputs: number[] = [];
+    const inW: number[] = [];
+    for (let j = 0; j < 3; j++) {
+      const input = genes[o + j];
+      const weight = genes[o + 4 + j];
+      if (!Number.isInteger(input) || input < 0 || input >= SENSORY_COUNT || !Number.isFinite(weight)) continue;
+      inputs.push(input);
+      inW.push(weight);
+    }
+    const motor = genes[o + 3];
+    const outW = genes[o + 7];
+    if (inputs.length === 0 || !Number.isInteger(motor) || motor < 0 || motor >= MOTOR_COUNT || !Number.isFinite(outW)) continue;
+    out.push({ inputs, inW, motor, outW, born: -1, generations: Math.max(1, Math.round(genes[o + 8] || 1)), utility: 0 });
+  }
+  return out;
+}
+
+/** The instinct genes for one grown neuron, one generation further on. */
+function encodeInstinct(g: GrownNeuron): number[] {
+  const out = new Array<number>(INSTINCT_STRIDE).fill(-1);
+  for (let j = 0; j < 3; j++) {
+    out[j] = g.inputs[j] ?? -1;
+    out[4 + j] = g.inW[j] ?? 0;
+  }
+  out[3] = g.motor;
+  out[7] = g.outW;
+  out[8] = g.generations + 1;
+  return out;
+}
+
+/**
+ * The third Rule of Creation: what a parent's brain grew and found useful can
+ * be born into the child. The most useful grown neurons of each parent (two at
+ * most from each, `MAX_INSTINCTS` in all) are written into the child's genome as
+ * instincts, with mutation: now and then one is lost, its weights drift, or one
+ * of its senses is swapped for another. Over generations the useful ones spread
+ * and the rest fade — new reflexes, evolved rather than written.
+ */
+export function inheritInstincts(mother: Brain, father: Brain, rng: Rng): number[] {
+  const pick = (brain: Brain): GrownNeuron[] =>
+    brain.grown
+      .filter((g) => g.utility >= INSTINCT_UTILITY)
+      .sort((a, b) => b.utility - a.utility)
+      .slice(0, 2);
+  const chosen = [...pick(mother), ...pick(father)];
+  const genes: number[] = [];
+  const seen = new Set<string>();
+  for (const g of chosen) {
+    if (genes.length / INSTINCT_STRIDE >= MAX_INSTINCTS) break;
+    const key = `${g.inputs[0]}>${g.motor}${Math.sign(g.outW)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (rng.next() < 0.08) continue; // lost
+    const instinct = encodeInstinct(g);
+    if (rng.next() < 0.2) {
+      for (let j = 4; j <= 7; j++) if (instinct[j] !== 0) instinct[j] *= 1 + rng.normal(0, 0.12);
+    }
+    if (rng.next() < 0.05) {
+      const slot = Math.floor(rng.next() * 3);
+      let sense = Math.floor(rng.next() * SENSORY_COUNT);
+      if (NOT_A_CONTEXT.has(sense)) sense = S.hunger;
+      if (instinct[slot] >= 0) instinct[slot] = sense;
+    }
+    genes.push(...instinct);
+  }
+  return genes;
+}
 
 function decodeFloat32(text: string, length: number): Float32Array {
   const out = new Float32Array(length);

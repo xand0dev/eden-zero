@@ -32,6 +32,9 @@ export interface MutationReport {
 export function crossover(a: Genome, b: Genome, rng: Rng, report?: CrossoverReport): Genome {
   const child: Genome = { ...a };
   child.species = a.species;
+  // Instincts are not genes to cross over: the world writes them from the
+  // parents' brains at conception (see inheritInstincts).
+  delete child.instincts;
   let blended = 0;
 
   for (const def of GENE_DEFS) {
@@ -91,9 +94,12 @@ export function mutate(genome: Genome, rng: Rng, options: MutationOptions = {}):
   for (const def of GENE_DEFS) {
     const key = def.key;
     if (key === 'brainSeed') continue;
-    if (!rng.chance(rate)) continue;
+    // Looks are neutral — nothing selects on them — so they drift twice as
+    // fast, and a lineage's appearance visibly wanders within a few generations.
+    const cosmetic = def.group === 'Appearance';
+    if (!rng.chance(cosmetic ? Math.min(1, rate * 2) : rate)) continue;
     const span = def.max - def.min;
-    const delta = rng.normal(0, strength) * span;
+    const delta = rng.normal(0, cosmetic ? strength * 2 : strength) * span;
     genome[key] = genome[key] + delta;
     mutated.push(key);
     magnitude += Math.abs(delta) / span;

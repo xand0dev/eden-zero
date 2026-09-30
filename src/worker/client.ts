@@ -13,7 +13,7 @@ import type {
   WorldEffect,
   WorldStats,
 } from '../shared/types';
-import { EntityKind, SNAPSHOT_FLOAT_STRIDE, SNAPSHOT_META_STRIDE } from '../shared/types';
+import { EntityKind, MORPH_GENES, SNAPSHOT_FLOAT_STRIDE, SNAPSHOT_META_STRIDE, SNAPSHOT_MORPH_OFFSET } from '../shared/types';
 import type { GodCommand, MainToWorker, WorkerToMain, WorldConfig } from '../shared/protocol';
 import { SNAPSHOT_HZ_NORMAL } from '../shared/constants';
 import { RemoteTransport, type MatchView, type RemoteSnapshot, type RemoteStatus } from './remote';
@@ -39,6 +39,8 @@ export interface EntityView {
   age: number;
   /** House affiliation in competitive mode; 0 for ordinary observatory. */
   house: number;
+  /** A person's looks, seven 0..255 genes (see SNAPSHOT_MORPH_OFFSET); null for anything else. */
+  morph: Uint8Array | null;
 }
 
 export interface SimState {
@@ -576,6 +578,10 @@ function decodeEntities(
       mating: floats[f + 10],
       age: floats[f + 11],
       house: meta[m + 4],
+      morph:
+        meta[m] === EntityKind.Human
+          ? meta.subarray(m + SNAPSHOT_MORPH_OFFSET, m + SNAPSHOT_MORPH_OFFSET + MORPH_GENES.length)
+          : null,
     };
   }
   return out;

@@ -763,6 +763,7 @@ export class WorldRenderer {
           hue,
           entity.saturation,
           entity.lightness,
+          entity.morph,
         );
       } else {
         seenPredators.add(entity.id);

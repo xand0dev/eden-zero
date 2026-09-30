@@ -298,18 +298,32 @@ describe('forest exhaustion', () => {
     // actual choice to get wrong.
     let human = world.humans[0];
     let candidates: Array<{ plant: (typeof world.plants)[number]; i: number; d: number }> = [];
-    for (const candidate of world.humans) {
+    const sideOf = (who: typeof human, x: number, y: number): number => {
+      const relative = normalizeAngle(Math.atan2(y - who.y, x - who.x) - who.heading);
+      const forward = Math.cos(relative);
+      const lateral = Math.sin(relative);
+      if (Math.abs(forward) >= Math.abs(lateral)) return forward >= 0 ? 0 : 2;
+      return lateral >= 0 ? 1 : 3;
+    };
+    search: for (const candidate of world.humans) {
       const found = world.plants
         .map((plant, i) => ({ plant, i }))
         .filter(({ plant }) => plant.alive && plant.species === PlantSpecies.Tree && plant.timber > 0.8)
         .map(({ plant, i }) => ({ plant, i, d: Math.hypot(plant.x - candidate.x, plant.y - candidate.y) }))
         .filter((c) => c.d > 0.6 && c.d < 13)
         .sort((a, b) => a.d - b.d);
-      if (found.length >= 2) {
-        human = candidate;
-        candidates = found;
-        break;
-      }
+      if (found.length < 2) continue;
+      // A real choice: the nearest tree is alone on its side, and a richer one
+      // stands on another side. (Two trees on the same side are one channel.)
+      const side = sideOf(candidate, found[0].plant.x, found[0].plant.y);
+      const far = found.find((c) => c.d > found[0].d && sideOf(candidate, c.plant.x, c.plant.y) !== side);
+      if (!far) continue;
+      // Clear every other tree in range so the two are the only choice.
+      for (const c of found) if (c !== found[0] && c !== far) c.plant.alive = false;
+      world.rebuildGrids();
+      human = candidate;
+      candidates = [found[0], far];
+      break search;
     }
 
     expect(candidates.length).toBeGreaterThanOrEqual(2);

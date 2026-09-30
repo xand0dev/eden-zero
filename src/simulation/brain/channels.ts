@@ -35,6 +35,16 @@ export const MOTOR_COUNT = 17;
 export const NEURON_COUNT = 341;
 
 /**
+ * Neurogenesis (v3): room for neurons a brain grows during its life, or is born
+ * with because its ancestors grew them. They sit after the motor pool, at
+ * `GROWN_START`, packed with no gaps; a slot without a neuron costs nothing.
+ * See `Brain.grow` and genesis/rules.ts.
+ */
+export const GROWN_START = NEURON_COUNT;
+export const GROWTH_CAPACITY = 24;
+export const BRAIN_SLOTS = NEURON_COUNT + GROWTH_CAPACITY;
+
+/**
  * Neuron regions. Declared as a frozen object rather than a `const enum`
  * because the build pipeline (esbuild + isolatedModules) does not support
  * const enums across module boundaries.
@@ -45,6 +55,7 @@ export const Region = {
   Recurrent: 2,
   Modulatory: 3,
   Motor: 4,
+  Grown: 5,
 } as const;
 export type Region = (typeof Region)[keyof typeof Region];
 
@@ -53,10 +64,11 @@ export function regionOf(index: number): Region {
   if (index < RECURRENT_START) return Region.Local;
   if (index < MOD_START) return Region.Recurrent;
   if (index < MOTOR_START) return Region.Modulatory;
-  return Region.Motor;
+  if (index < GROWN_START) return Region.Motor;
+  return Region.Grown;
 }
 
-export const REGION_NAMES = ['sensory', 'local', 'recurrent', 'modulatory', 'motor'] as const;
+export const REGION_NAMES = ['sensory', 'local', 'recurrent', 'modulatory', 'motor', 'grown'] as const;
 
 /**
  * Sensory channels. Four of the most behaviourally important modalities are
@@ -250,7 +262,8 @@ export function labelNeuron(index: number): string {
   if (index < RECURRENT_START) return `local:${index - LOCAL_START}`;
   if (index < MOD_START) return `recurrent:${index - RECURRENT_START}`;
   if (index < MOTOR_START) return `modulatory:${index - MOD_START}`;
-  return `motor:${MOTOR_NAMES[index - MOTOR_START]}`;
+  if (index < GROWN_START) return `motor:${MOTOR_NAMES[index - MOTOR_START]}`;
+  return `grown:${index - GROWN_START}`;
 }
 
 export function shortLabel(index: number): string {
@@ -258,5 +271,6 @@ export function shortLabel(index: number): string {
   if (index < RECURRENT_START) return `L${index - LOCAL_START}`;
   if (index < MOD_START) return `R${index - RECURRENT_START}`;
   if (index < MOTOR_START) return `N${index - MOD_START}`;
-  return MOTOR_NAMES[index - MOTOR_START];
+  if (index < GROWN_START) return MOTOR_NAMES[index - MOTOR_START];
+  return `G${index - GROWN_START}`;
 }

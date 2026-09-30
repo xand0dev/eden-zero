@@ -48,9 +48,34 @@ export interface Genome {
   // --- ecology (mainly predators) ----------------------------------------
   bodyScale: number; // overall visual/physical scale multiplier
   attackPower: number; // damage per attack tick
+
+  // --- v3: evolution ------------------------------------------------------
+  /** Room for neurons grown during life, 0..1 of the brain's growth capacity. */
+  neurogenesis: number;
+  /** Shoulder and hip width. */
+  build: number; // 0.8 .. 1.25
+  /** Round (0) to long (1) head. */
+  headShape: number;
+  /** Which hairstyle, read in bands (see render/morph.ts). */
+  hairStyle: number;
+  /** Hair colour along a natural-to-dyed ramp. */
+  hairHue: number;
+  /** Body paint: how much, read in bands from none to full pattern. */
+  markings: number;
+  /** Body paint colour. */
+  markingHue: number;
+  /** Headwear and adornment, read in bands from none upward. */
+  ornament: number;
+
+  /**
+   * Instincts: grown neurons inherited from ancestors, `INSTINCT_STRIDE`
+   * numbers each (see brain/network.ts). Not a gene with bounds like the
+   * others — it is wiring, and it is copied, mutated and validated on its own.
+   */
+  instincts?: number[];
 }
 
-export type GeneKey = Exclude<keyof Genome, 'species'>;
+export type GeneKey = Exclude<keyof Genome, 'species' | 'instincts'>;
 
 export interface GeneDef {
   key: GeneKey;
@@ -279,6 +304,78 @@ export const GENE_DEFS: readonly GeneDef[] = [
     description: 'Gain on conspecific sensory channels.',
   },
   {
+    key: 'neurogenesis',
+    label: 'Neurogenesis',
+    group: 'Neural',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    description: 'How many new neurons the brain may grow during life (share of 24 slots).',
+  },
+  {
+    key: 'build',
+    label: 'Build',
+    group: 'Morphology',
+    min: 0.8,
+    max: 1.25,
+    step: 0.01,
+    description: 'Shoulder and hip width. Cosmetic.',
+  },
+  {
+    key: 'headShape',
+    label: 'Head shape',
+    group: 'Appearance',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    description: 'Round to long. Drifts over generations.',
+  },
+  {
+    key: 'hairStyle',
+    label: 'Hairstyle',
+    group: 'Appearance',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    description: 'Read in bands: shorn, cropped, long, braided, crested, knotted.',
+  },
+  {
+    key: 'hairHue',
+    label: 'Hair colour',
+    group: 'Appearance',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    description: 'Natural shades at the low end, ochre and dyes at the high end.',
+  },
+  {
+    key: 'markings',
+    label: 'Body paint',
+    group: 'Appearance',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    description: 'None, stripes, dots, bands, chevrons. Appears and spreads by drift.',
+  },
+  {
+    key: 'markingHue',
+    label: 'Paint colour',
+    group: 'Appearance',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    description: 'Colour of the body paint.',
+  },
+  {
+    key: 'ornament',
+    label: 'Adornment',
+    group: 'Appearance',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    description: 'None, a feather, beads, a headband, horns, a flower crown.',
+  },
+  {
     key: 'bodyScale',
     label: 'Body scale',
     group: 'Ecology',
@@ -310,15 +407,37 @@ export function geneDef(key: GeneKey): GeneDef {
 export function sanitizeGenome(genome: Genome): Genome {
   for (const def of GENE_DEFS) {
     const raw = genome[def.key];
-    let value = Number.isFinite(raw) ? raw : def.min;
+    // A gene a genome predates (an old save, a vault entry) takes its default.
+    let value = Number.isFinite(raw) ? raw : raw === undefined ? (GENE_DEFAULTS[def.key] ?? def.min) : def.min;
     if (value < def.min) value = def.min;
     if (value > def.max) value = def.max;
     if (def.integer) value = Math.round(value);
     genome[def.key] = value;
   }
   genome.species = genome.species === 1 ? 1 : 0;
+  if (genome.instincts !== undefined) {
+    const ok =
+      Array.isArray(genome.instincts) &&
+      genome.instincts.length % 9 === 0 &&
+      genome.instincts.length <= 36 &&
+      genome.instincts.every((v) => Number.isFinite(v));
+    if (!ok) delete genome.instincts;
+    else if (genome.instincts.length === 0) delete genome.instincts;
+  }
   return genome;
 }
+
+/** What a genome that predates a gene is read as having. */
+const GENE_DEFAULTS: Partial<Record<GeneKey, number>> = {
+  neurogenesis: 0.4,
+  build: 1,
+  headShape: 0.5,
+  hairStyle: 0.3,
+  hairHue: 0.3,
+  markings: 0,
+  markingHue: 0,
+  ornament: 0,
+};
 
 /** True if every gene sits inside its declared bounds. */
 export function isGenomeValid(genome: Genome): boolean {
@@ -377,6 +496,14 @@ export function randomGenome(rng: Rng, species: 0 | 1 = 0): Genome {
       socialGain: g(rng, def('socialGain'), 1.15, 0.2),
       bodyScale: g(rng, def('bodyScale'), 2.35, 0.3),
       attackPower: g(rng, def('attackPower'), 9, 2),
+      neurogenesis: 0,
+      build: 1,
+      headShape: 0.5,
+      hairStyle: 0,
+      hairHue: 0,
+      markings: 0,
+      markingHue: 0,
+      ornament: 0,
     };
     return sanitizeGenome(genome);
   }
@@ -410,12 +537,24 @@ export function randomGenome(rng: Rng, species: 0 | 1 = 0): Genome {
     socialGain: g(rng, def('socialGain'), 1.0, 0.2),
     bodyScale: 1,
     attackPower: g(rng, def('attackPower'), 3.2, 0.8),
+    neurogenesis: g(rng, def('neurogenesis'), 0.4, 0.15),
+    build: g(rng, def('build'), 1, 0.07),
+    headShape: g(rng, def('headShape'), 0.5, 0.18),
+    hairStyle: rng.next(),
+    hairHue: g(rng, def('hairHue'), 0.3, 0.2),
+    // Founders are mostly unpainted and unadorned: paint and adornment arrive
+    // by drift, so a village's look is something its history produced.
+    markings: g(rng, def('markings'), 0.12, 0.12),
+    markingHue: rng.next(),
+    ornament: g(rng, def('ornament'), 0.15, 0.15),
   };
   return sanitizeGenome(genome);
 }
 
 export function cloneGenome(genome: Genome): Genome {
-  return { ...genome };
+  const copy = { ...genome };
+  if (genome.instincts) copy.instincts = genome.instincts.slice();
+  return copy;
 }
 
 /** Euclidean distance in normalised gene space. Used by the inspector. */

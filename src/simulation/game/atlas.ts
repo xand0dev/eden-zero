@@ -43,6 +43,8 @@ export const REGION_SIZE = 16;
  */
 export interface BehaviourLog {
   id: number;
+  /** Neurons this person's brain grew in life (neurogenesis, v3). */
+  skillsGrown?: number;
   samples: number;
   nearWater: number;
   nearHome: number;
@@ -172,6 +174,14 @@ export interface AtlasSubject {
   weightDrift: number;
   /** Tick of the current world. */
   tick: number;
+  /** Grown neurons alive in the brain now, instincts included. */
+  grownNeurons?: number;
+  /** How many grown neurons the brain has room for. */
+  growthCapacity?: number;
+  /** Instincts this person was born with. */
+  instincts?: number;
+  /** Most generations any of their instincts has been inherited through. */
+  instinctGenerations?: number;
 }
 
 export interface AtlasEntry {
@@ -589,6 +599,64 @@ export const ATLAS: AtlasEntry[] = [
     criterion: 'Awake near a dwelling, with three or more asleep within 8 tiles, in 70% or more of a day’s night samples.',
     epithet: 'the Night Watch',
     test: (l) => l.nightSamples >= SAMPLES_PER_DAY / 3 && share(l.nightWatch, l.nightSamples) >= 0.7,
+  },
+  {
+    id: 'first-neuron',
+    name: 'A new neuron',
+    section: 'mind',
+    rarity: 'common',
+    description: 'At a moment that mattered, their brain grew a neuron nobody designed — a small rule tying what they sensed to what they did.',
+    criterion: 'Grew at least one neuron in life.',
+    test: (l) => (l.skillsGrown ?? 0) >= 1,
+  },
+  {
+    id: 'many-neurons',
+    name: 'Growing mind',
+    section: 'mind',
+    rarity: 'uncommon',
+    description: 'Grew six new neurons in one life.',
+    criterion: 'Grew six or more neurons in life.',
+    epithet: 'the Growing',
+    test: (l) => (l.skillsGrown ?? 0) >= 6,
+  },
+  {
+    id: 'full-mind',
+    name: 'A full mind',
+    section: 'mind',
+    rarity: 'rare',
+    description: 'Every slot their genes allowed for new neurons is taken, and there is room for at least twelve.',
+    criterion: 'Grown neurons equal capacity, capacity twelve or more.',
+    epithet: 'the Deep',
+    test: (_l, s) => (s.growthCapacity ?? 0) >= 12 && (s.grownNeurons ?? 0) >= (s.growthCapacity ?? 0),
+  },
+  {
+    id: 'born-knowing',
+    name: 'Born knowing',
+    section: 'mind',
+    rarity: 'uncommon',
+    description: 'Born with an instinct: something a parent learned, written into the child as wiring.',
+    criterion: 'At least one inherited instinct.',
+    test: (_l, s) => (s.instincts ?? 0) >= 1,
+  },
+  {
+    id: 'ancestral-instinct',
+    name: 'Ancestral instinct',
+    section: 'mind',
+    rarity: 'rare',
+    description: 'Carries an instinct that has passed down five generations — a reflex that evolved in this world.',
+    criterion: 'An instinct inherited through five or more generations.',
+    epithet: 'of the Old Blood',
+    test: (_l, s) => (s.instinctGenerations ?? 0) >= 5,
+  },
+  {
+    id: 'instinct-of-ages',
+    name: 'Instinct of ages',
+    section: 'mind',
+    rarity: 'legendary',
+    description: 'Carries an instinct twelve generations old. Nobody wrote it; the world did.',
+    criterion: 'An instinct inherited through twelve or more generations.',
+    epithet: 'the Inheritor',
+    test: (_l, s) => (s.instinctGenerations ?? 0) >= 12,
   },
   {
     id: 'relearned',

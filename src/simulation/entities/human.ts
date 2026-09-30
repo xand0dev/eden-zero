@@ -1,5 +1,5 @@
 import { Rng } from '../rng';
-import { Brain, clamp, type BrainOptions } from '../brain/network';
+import { Brain, clamp, type BrainOptions, type GrownNeuron } from '../brain/network';
 import { M, MOTOR_COUNT, MOTOR_NAMES, MOTOR_START, S, SENSORY_COUNT, SENSORY_NAMES, regionOf } from '../brain/channels';
 import { SocialMemory } from '../memory/social';
 import { cloneGenome, type Genome } from '../genetics/genome';
@@ -121,6 +121,9 @@ const DIG_ENERGY_PER_TICK = 2.2 / HARVEST_INTERVAL_TICKS;
 const DIG_FATIGUE_PER_TICK = 3 / HARVEST_INTERVAL_TICKS;
 
 /** Duration of a mating event, in simulated seconds. */
+/** Acts a grown neuron can be credited with, before falling back to the gait. */
+const CREDITED_ACTS = [M.harvest, M.build, M.plant, M.tend, M.dig, M.mate, M.interact, M.signal, M.sprint, M.moveBack];
+
 export const MATING_DURATION = 7;
 /**
  * Ticks a human must wait after mating before it can mate again.
@@ -961,6 +964,10 @@ export class Human {
     this.brain.readMotor(this.motor);
     this.brain.applyPlasticity(this.genome.plasticity * world.rules.plasticity, valence * this.genome.neuromodGain);
     this.lastValence = valence;
+    // Neurogenesis: the action credited is the one that was under way when this
+    // valence arrived — last tick's, not the one about to be chosen.
+    const grown = this.brain.considerGrowth(valence, this.creditedMotor(), world.tick);
+    if (grown) world.noteNeurogenesis?.(this, grown);
 
     let best = 0;
     let bestValue = -Infinity;
@@ -981,6 +988,26 @@ export class Human {
     this.prevHealth = this.health;
     this.prevHunger = this.hunger;
     void world;
+  }
+
+  /**
+   * What the body was doing last tick, as a motor: the act, not the gait. A
+   * person eating is usually also drifting forward, and crediting the legs for
+   * the meal would make every grown neuron a walking rule.
+   */
+  private creditedMotor(): number {
+    if (this.feeding) return this.motor[M.eat] > this.motor[M.drink] ? M.eat : M.drink;
+    if (this.sleeping || this.resting) return M.rest;
+    if (this.attacking) return M.attack;
+    let best = -1;
+    let bestValue = 0.35;
+    for (const i of CREDITED_ACTS) {
+      if (this.motor[i] > bestValue) {
+        bestValue = this.motor[i];
+        best = i;
+      }
+    }
+    return best >= 0 ? best : this.actionIndex;
   }
 
   /**
@@ -1746,6 +1773,8 @@ export class Human {
       lastValenceValue: this.lastValenceValue,
       memory: this.memory.serialize(),
       brain: this.brain.serialize(),
+      growth: this.brain.serializeGrowth(),
+      growthState: this.brain.serializeGrowthState(),
       rngState: this.rng.getState(),
     };
   }
@@ -1815,6 +1844,9 @@ export class Human {
     human.valenceTimer = (data.valenceTimer as number) ?? 0;
     human.lastValenceValue = (data.lastValenceValue as number) ?? 0;
     human.memory.restore((data.memory as number[][]) ?? []);
+    // Grown neurons first: they decide how many synapses the saved weights cover.
+    if (Array.isArray(data.growth)) human.brain.resetGrowth(data.growth as GrownNeuron[]);
+    human.brain.restoreGrowthState(data.growthState as Parameters<Brain['restoreGrowthState']>[0]);
     human.brain.restore(data.brain as number[] | string, human.brain.synCount);
     if (Array.isArray(data.rngState)) human.rng.setState(data.rngState as number[]);
     return human;

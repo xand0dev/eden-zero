@@ -52,9 +52,12 @@ import {
   LifeStage,
   SNAPSHOT_FLOAT_STRIDE,
   SNAPSHOT_META_STRIDE,
+  SNAPSHOT_MORPH_OFFSET,
+  MORPH_GENES,
   Sex,
   STAGE_NAMES,
   type BrainView,
+  type GrownView,
   type DevMetrics,
   type EventKind,
   type ExplanationView,
@@ -68,9 +71,10 @@ import {
   type WorldSnapshot,
   type WorldStats,
 } from '../shared/types';
-import { MOTOR_NAMES, MOTOR_START, M, labelNeuron, regionOf } from './brain/channels';
+import { GROWN_START, MOTOR_NAMES, MOTOR_START, M, NEURON_COUNT, labelNeuron, regionOf } from './brain/channels';
 import { explainAction } from './brain/trace';
-import { Brain } from './brain/network';
+import { Brain, inheritInstincts, type GrownNeuron } from './brain/network';
+import { skillName, skillSentence, skillSignature } from './brain/skills';
 import type { InheritanceReport } from './genetics/evolution';
 
 /**
@@ -264,6 +268,12 @@ export class World implements SimWorld {
   readonly discovered = new Map<string, { tick: number; humanId: number; name: string }>();
   /** Atlas entries seen this session that the observer has not been told about yet. */
   pendingDiscoveries: string[] = [];
+  /**
+   * Every skill a brain in this world has grown, by wiring signature: its name,
+   * who grew it first and when, and how many times it has been grown since.
+   * The skills are not a list anyone wrote; this is the world's book of them.
+   */
+  readonly skills = new Map<string, { name: string; sentence: string; firstId: number; firstName: string; tick: number; count: number }>();
   /** Every accepted observer command, with the tick it was applied at: a replay. */
   commandLog: Array<{ tick: number; command: GodCommand }> = [];
   /** Plants on fire, by plant id, with ticks left to burn. */
@@ -610,6 +620,32 @@ export class World implements SimWorld {
   noteStrike(attacker: Human): void {
     const log = this.logOf(attacker);
     if (log) log.struck += 1;
+  }
+
+  noteNeurogenesis(human: Human, neuron: GrownNeuron): void {
+    const log = this.logOf(human);
+    if (log) log.skillsGrown = (log.skillsGrown ?? 0) + 1;
+    const wiring = { inputs: neuron.inputs, motor: neuron.motor, sign: neuron.outW >= 0 ? 1 : -1 };
+    const signature = skillSignature(wiring);
+    const known = this.skills.get(signature);
+    if (known) {
+      known.count += 1;
+      return;
+    }
+    const name = skillName(wiring);
+    const sentence = skillSentence(wiring);
+    this.skills.set(signature, { name, sentence, firstId: human.id, firstName: human.name, tick: this.tick, count: 1 });
+    this.emitEvent('mind', `${human.name} grew a new neuron: “${name}” — ${sentence}`, [human.id]);
+    this.chronicle.first('neurogenesis', {
+      tick: this.tick,
+      simTime: this.simTime,
+      importance: 3,
+      title: 'The first new neuron',
+      text: `${human.name}'s brain grew a neuron nobody designed: “${name}”. ${sentence}`,
+      entityIds: [human.id],
+      x: human.x,
+      y: human.y,
+    });
   }
 
   noteFeverRecovered(human: Human): void {
@@ -1516,6 +1552,9 @@ export class World implements SimWorld {
       strength: 0.05,
       structuralChance: Math.min(1, 0.02 * mutation),
     });
+    // What the parents' brains grew and found useful is born into the child.
+    const instincts = inheritInstincts(mother.brain, father.brain, this.rng);
+    if (instincts.length > 0) genome.instincts = instincts;
     mother.conceive(father, this, genome, report);
     this.emitEvent('conception', `${mother.name} conceived a child with ${father.name}.`, [
       mother.id,
@@ -2509,6 +2548,10 @@ export class World implements SimWorld {
       innateWeight: (k) => brain.innateWeight(k),
       weightDrift: brain.weightDrift(),
       tick: this.tick,
+      grownNeurons: brain.grown.length,
+      growthCapacity: brain.growthCapacity,
+      instincts: brain.grown.filter((g) => g.born < 0).length,
+      instinctGenerations: brain.grown.reduce((most, g) => Math.max(most, g.born < 0 ? g.generations : 0), 0),
     };
   }
 
@@ -2857,7 +2900,7 @@ export class World implements SimWorld {
           break;
       }
       if (human.pregnancy) pregnancies++;
-      neurons += human.brain.n;
+      neurons += human.brain.neuronCount;
       synapses += human.brain.synCount;
       drift += human.brain.weightDrift();
     }
@@ -3041,7 +3084,9 @@ export class World implements SimWorld {
       children,
       siblings,
       social: social.slice(0, 14),
-      neuronCount: human.brain.n,
+      neuronCount: human.brain.neuronCount,
+      skills: this.grownViews(human),
+      growthCapacity: human.brain.growthCapacity,
       synapseCount: human.brain.synCount,
       excitatorySynapses: human.brain.stats().excitatory,
       inhibitorySynapses: human.brain.stats().inhibitory,
@@ -3091,18 +3136,20 @@ export class World implements SimWorld {
     const human = this.humanById.get(id);
     if (!human) return null;
     const brain = human.brain;
-    const activity: number[] = new Array(brain.n);
-    const potential: number[] = new Array(brain.n);
+    // The core's 341 neurons, index for index; grown neurons travel separately.
+    const core = NEURON_COUNT;
+    const activity: number[] = new Array(core);
+    const potential: number[] = new Array(core);
     let meanActivity = 0;
     let activeNeurons = 0;
-    for (let i = 0; i < brain.n; i++) {
+    for (let i = 0; i < core; i++) {
       const value = Math.min(1, brain.rate[i] * 4);
       activity[i] = value;
       potential[i] = brain.v[i];
       meanActivity += value;
       if (value > 0.2) activeNeurons++;
     }
-    meanActivity /= brain.n;
+    meanActivity /= core;
 
     // The strongest synapses *between each pair of regions*, not overall.
     //
@@ -3113,7 +3160,7 @@ export class World implements SimWorld {
     // flow: senses to local circuits, into the core, around it, and out to the
     // motors. Read-only: nothing here touches the simulation.
     const buckets = new Map<number, number[]>();
-    for (let s = 0; s < brain.synCount; s++) {
+    for (let s = 0; s < brain.coreSynCount; s++) {
       const key = regionOf(brain.pre[s]) * 8 + regionOf(brain.post[s]);
       let bucket = buckets.get(key);
       if (!bucket) buckets.set(key, (bucket = []));
@@ -3132,7 +3179,7 @@ export class World implements SimWorld {
     // What a lifetime has rewritten: the synapses that moved furthest from the
     // weight this individual was born with, whether or not they are strong.
     const byDrift: number[] = [];
-    for (let s = 0; s < brain.synCount; s++) if (!shown.has(s)) byDrift.push(s);
+    for (let s = 0; s < brain.coreSynCount; s++) if (!shown.has(s)) byDrift.push(s);
     byDrift.sort(
       (a, b) => Math.abs(brain.w[b] - brain.initialWeights[b]) - Math.abs(brain.w[a] - brain.initialWeights[a]),
     );
@@ -3141,13 +3188,15 @@ export class World implements SimWorld {
       .map((s) => [brain.pre[s], brain.post[s], brain.w[s], brain.w[s] - brain.initialWeights[s]]);
 
     // Spikes since the last read. Draining here is safe: nothing else reads it.
-    const spikes = Array.from(brain.spikeCount);
+    const spikes = Array.from(brain.spikeCount.subarray(0, core));
     brain.spikeCount.fill(0);
 
     const stats = brain.stats();
     return {
       entityId: id,
-      neuronCount: brain.n,
+      neuronCount: brain.neuronCount,
+      grown: this.grownViews(human),
+      growthCapacity: brain.growthCapacity,
       activity,
       potential,
       motor: Array.from(human.motor),
@@ -3165,6 +3214,27 @@ export class World implements SimWorld {
         inhibitory: stats.inhibitory,
       },
     };
+  }
+
+  /** A person's grown neurons, named and described. Read-only. */
+  grownViews(human: Human): GrownView[] {
+    const brain = human.brain;
+    return brain.grown.map((g, k) => {
+      const wiring = { inputs: g.inputs, motor: g.motor, sign: g.outW >= 0 ? 1 : -1 };
+      return {
+        index: GROWN_START + k,
+        name: skillName(wiring),
+        sentence: skillSentence(wiring),
+        inputs: g.inputs.slice(),
+        motor: g.motor,
+        sign: wiring.sign,
+        outWeight: brain.grownOutWeight(k),
+        activity: Math.min(1, brain.rate[GROWN_START + k] * 4),
+        generations: g.born < 0 ? g.generations : 0,
+        grownDaysAgo: g.born < 0 ? null : Math.max(0, (this.tick - g.born) / TICKS_PER_DAY),
+        utility: g.utility,
+      };
+    });
   }
 
   explain(id: number): ExplanationView | null {
@@ -3276,6 +3346,7 @@ export class World implements SimWorld {
       mating01: number,
       age01: number,
       house: number,
+      genome?: Genome,
     ): void => {
       ids[index] = id;
       const f = index * SNAPSHOT_FLOAT_STRIDE;
@@ -3297,6 +3368,13 @@ export class World implements SimWorld {
       meta[m + 2] = stage;
       meta[m + 3] = flags;
       meta[m + 4] = house;
+      if (genome) {
+        for (let k = 0; k < MORPH_GENES.length; k++) {
+          const def = geneDef(MORPH_GENES[k]);
+          const value = (genome[MORPH_GENES[k]] - def.min) / (def.max - def.min);
+          meta[m + SNAPSHOT_MORPH_OFFSET + k] = Math.max(0, Math.min(255, Math.round(value * 255)));
+        }
+      }
       index++;
     };
 
@@ -3330,6 +3408,7 @@ export class World implements SimWorld {
         human.mating ? human.mating.progress : 0,
         Math.min(1, human.ageBio / human.genome.lifespan),
         human.house,
+        human.genome,
       );
     }
 
@@ -3458,6 +3537,7 @@ export class World implements SimWorld {
         logs: [...this.logs.values()],
         discovered: [...this.discovered.entries()],
         commandLog: this.commandLog,
+        skills: [...this.skills.entries()],
         burning: [...this.burning.entries()],
         burningStructures: [...this.burningStructures.entries()],
         rains: this.rains,
@@ -3541,6 +3621,9 @@ export class World implements SimWorld {
         world.discovered.set(id, found);
       }
       world.commandLog = (game.commandLog as World['commandLog']) ?? [];
+      for (const [signature, skill] of (game.skills as Array<[string, World['skills'] extends Map<string, infer V> ? V : never]>) ?? []) {
+        world.skills.set(signature, { ...skill });
+      }
       for (const [id, ticks] of (game.burning as Array<[number, number]>) ?? []) world.burning.set(id, ticks);
       for (const [id, ticks] of (game.burningStructures as Array<[number, number]>) ?? []) {
         world.burningStructures.set(id, ticks);

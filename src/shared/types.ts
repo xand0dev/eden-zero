@@ -43,14 +43,21 @@ export const SNAPSHOT_FLOAT_STRIDE = 12;
 /**
  * Bytes of per-entity metadata in a snapshot.
  *
- * 0 = kind, 1 = sex, 2 = stage, 3 = flags, 4 = house.
+ * 0 = kind, 1 = sex, 2 = stage, 3 = flags, 4 = house, 5..11 = looks (v3).
  *
  * The house needed its own byte rather than a flag bit: `EntityFlags` is a
  * single `Uint8Array` element and all eight bits were already spoken for, so a
  * `1 << 10` house flag was silently discarded by the typed-array write. That
  * cost an hour and is why the house is now a field rather than a bit.
  */
-export const SNAPSHOT_META_STRIDE = 5;
+export const SNAPSHOT_META_STRIDE = 12;
+/**
+ * Where the looks start in the metadata: seven bytes (v3), each a 0..1 gene
+ * scaled to 0..255 — build, head shape, hairstyle, hair colour, body paint,
+ * paint colour, adornment. Zero for anything that is not a person.
+ */
+export const SNAPSHOT_MORPH_OFFSET = 5;
+export const MORPH_GENES = ['build', 'headShape', 'hairStyle', 'hairHue', 'markings', 'markingHue', 'ornament'] as const;
 
 export type EventKind =
   | 'birth'
@@ -65,7 +72,8 @@ export type EventKind =
   | 'milestone'
   | 'god'
   | 'ecology'
-  | 'build';
+  | 'build'
+  | 'mind';
 
 export interface WorldEvent {
   id: number;
@@ -399,6 +407,10 @@ export interface HumanDetail {
   social: SocialRecordView[];
 
   neuronCount: number;
+  /** Neurons grown in life or inherited as instincts, named. */
+  skills: GrownView[];
+  /** Room for grown neurons, from the neurogenesis gene. */
+  growthCapacity: number;
   synapseCount: number;
   excitatorySynapses: number;
   inhibitorySynapses: number;
@@ -418,9 +430,34 @@ export interface HumanDetail {
   work: { timber: number; woodLaid: number; completed: number; sown: number; crops: number; canals: number };
 }
 
+/** A neuron a brain grew, or inherited as an instinct, as the observer sees it. */
+export interface GrownView {
+  /** Slot index in the brain (GROWN_START + k). */
+  index: number;
+  name: string;
+  sentence: string;
+  /** Presynaptic sensory channels. */
+  inputs: number[];
+  motor: number;
+  /** +1 drives the motor, -1 holds it back. */
+  sign: number;
+  /** Current weight onto the motor. */
+  outWeight: number;
+  activity: number;
+  /** 0 = grown in this life; k = instinct inherited through k generations. */
+  generations: number;
+  /** Simulated days since it grew; null for an instinct. */
+  grownDaysAgo: number | null;
+  utility: number;
+}
+
 export interface BrainView {
   entityId: number;
   neuronCount: number;
+  /** Neurons grown in life or inherited as instincts (activity for these is not in `activity`). */
+  grown: GrownView[];
+  /** How many grown neurons this brain has room for. */
+  growthCapacity: number;
   /** Smoothed activity per neuron, 0..1. */
   activity: number[];
   /** Membrane potential per neuron. */

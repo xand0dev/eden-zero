@@ -2498,3 +2498,59 @@ button.link {
     display: none;
   }
 }
+
+/* --- grown neurons (v3) --------------------------------------------------- */
+.skills-panel .dim {
+  color: var(--text-faint);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.skill-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.skill-list li {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border-left: 2px solid var(--warn);
+}
+.skill-list li.curb {
+  border-left-color: var(--accent-3);
+}
+.skill-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+}
+.skill-head .dim {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.skill-text {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.35;
+}
+.skill-bar {
+  margin-top: 5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.skill-bar span {
+  display: block;
+  height: 100%;
+  background: var(--warn);
+  transition: width 0.3s ease;
+}
+.skill-list li.curb .skill-bar span {
+  background: var(--accent-3);
+}

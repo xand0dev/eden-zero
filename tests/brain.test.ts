@@ -23,7 +23,7 @@ function randomSensory(rng: Rng): Float32Array {
 describe('brain topology', () => {
   it('has the documented neuron count and a sparse synapse count', () => {
     const { brain } = makeBrain('topology');
-    expect(brain.n).toBe(NEURON_COUNT);
+    expect(brain.neuronCount).toBe(NEURON_COUNT);
     expect(brain.synCount).toBeGreaterThan(1500);
     expect(brain.synCount).toBeLessThan(6000);
     // Sparsity: a dense network would have NEURON_COUNT^2 synapses.

@@ -344,7 +344,8 @@ describe('statistics', () => {
     expect(stats.population).toBe(world.humans.length);
     expect(stats.males + stats.females).toBe(stats.population);
     expect(stats.babies + stats.children + stats.adults + stats.elders).toBe(stats.population);
-    expect(stats.averageNeurons).toBe(NEURON_COUNT);
+    // Grown neurons (v3) come on top of the core.
+    expect(stats.averageNeurons).toBeGreaterThanOrEqual(NEURON_COUNT);
     expect(stats.averageSynapses).toBeGreaterThan(1000);
   });
 });

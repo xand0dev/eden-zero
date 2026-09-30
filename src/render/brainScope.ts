@@ -56,8 +56,12 @@ const REGION_RGB: Array<[number, number, number]> = [
   [184, 146, 255],
   [255, 206, 92],
   [255, 138, 61],
+  [255, 236, 150],
 ];
-const REGION_LABEL = ['SENSES', 'LOCAL CIRCUITS', 'RECURRENT CORE', 'NEUROMODULATION', 'ACTIONS'];
+const REGION_LABEL = ['SENSES', 'LOCAL CIRCUITS', 'RECURRENT CORE', 'NEUROMODULATION', 'ACTIONS', 'GROWN'];
+/** A grown neuron that drives its muscle, and one that holds it back. */
+const GROWN_DRIVE_RGB: [number, number, number] = [255, 214, 110];
+const GROWN_CURB_RGB: [number, number, number] = [120, 220, 240];
 
 /** Sensory channels grouped by what they sense: [label, first, end). */
 const SENSORY_GROUPS: Array<[string, number, number]> = [
@@ -548,6 +552,7 @@ export class BrainScope {
     this.drawPulses(ctx);
     if (!this.learning) this.drawPath(ctx, L);
     this.drawNeurons(ctx, L);
+    this.drawGrown(ctx, L);
     this.drawMotors(ctx, L);
     this.drawRings(ctx, 'front');
     this.drawBloom(ctx);
@@ -751,6 +756,82 @@ export class BrainScope {
     ctx.globalCompositeOperation = 'source-over';
   }
 
+  /**
+   * Neurons this brain grew: a second arc between the core and the actions,
+   * each wired from the senses it listens to and into the muscle it drives
+   * (gold) or holds back (cyan). They are not in the 341-neuron layout because
+   * they did not exist when this individual was born — or their ancestors grew
+   * them, in which case they carry a small ring per generation.
+   */
+  private drawGrown(ctx: CanvasRenderingContext2D, L: Layout): void {
+    const grown = this.brain?.grown;
+    if (!grown || grown.length === 0) return;
+    const full = this.full;
+    const deg = Math.PI / 180;
+    const count = grown.length;
+    ctx.save();
+    for (let k = 0; k < count; k++) {
+      const g = grown[k];
+      const angle = (count === 1 ? 0 : -38 + (k / (count - 1)) * 76) * deg;
+      const gx = L.cx + Math.cos(angle) * L.rx * 0.8;
+      const gy = L.cy + Math.sin(angle) * L.ry * 0.8;
+      const rgb = g.sign > 0 ? GROWN_DRIVE_RGB : GROWN_CURB_RGB;
+      const a = Math.max(0, Math.min(1, g.activity));
+      const pulse = 0.5 + 0.5 * Math.sin(this.clock * 3 + k);
+      // Wiring: senses in, muscle out.
+      ctx.lineWidth = full ? 1.1 : 0.7;
+      for (const input of g.inputs) {
+        if (input < 0 || input >= NEURON_COUNT) continue;
+        ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.12 + a * 0.45})`;
+        ctx.beginPath();
+        ctx.moveTo(L.x[input], L.y[input]);
+        ctx.quadraticCurveTo(L.coreX, L.coreY - L.coreR * 0.4, gx, gy);
+        ctx.stroke();
+      }
+      const motor = MOTOR_START + g.motor;
+      ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.3 + a * 0.6})`;
+      ctx.lineWidth = (full ? 1.6 : 1) * (0.6 + Math.min(1.4, Math.abs(g.outWeight)));
+      if (g.sign < 0) ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(gx, gy);
+      ctx.lineTo(L.x[motor], L.y[motor]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // The neuron: a diamond, rings for each inherited generation.
+      const r = (full ? 6 : 4) * (0.8 + a * 0.5);
+      ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.55 + a * 0.45})`;
+      ctx.beginPath();
+      ctx.moveTo(gx, gy - r);
+      ctx.lineTo(gx + r, gy);
+      ctx.lineTo(gx, gy + r);
+      ctx.lineTo(gx - r, gy);
+      ctx.closePath();
+      ctx.fill();
+      for (let gen = 0; gen < Math.min(4, g.generations); gen++) {
+        ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.4 - gen * 0.07})`;
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.arc(gx, gy, r + 3 + gen * 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (a > 0.1) {
+        ctx.globalCompositeOperation = 'lighter';
+        const d = (full ? 30 : 16) * (0.5 + a * 0.8 + pulse * 0.1);
+        ctx.globalAlpha = Math.min(1, a * 1.2);
+        ctx.drawImage(this.glow[5], gx - d / 2, gy - d / 2, d, d);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      if (full) {
+        ctx.font = '600 10px Inter, -apple-system, sans-serif';
+        ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.55 + a * 0.45})`;
+        ctx.textAlign = 'right';
+        ctx.fillText(g.name, gx - r - 6, gy + 3);
+      }
+    }
+    ctx.restore();
+  }
+
   private drawRings(ctx: CanvasRenderingContext2D, layer: 'back' | 'front'): void {
     ctx.globalCompositeOperation = 'lighter';
     for (const r of this.rings) {
@@ -872,7 +953,7 @@ export class BrainScope {
     let spikesNow = 0;
     for (const s of brain.spikes ?? []) spikesNow += s;
     ctx.fillText(
-      `  ·  ${NEURON_COUNT} NEURONS  ·  ${this.curves.length + (this.learning ? this.learnedCurves.length : 0)} SYNAPSES SHOWN  ·  ${Math.round(spikesNow / 0.12)} SPIKES/S`,
+      `  ·  ${this.brain?.neuronCount ?? NEURON_COUNT} NEURONS  ·  ${this.curves.length + (this.learning ? this.learnedCurves.length : 0)} SYNAPSES SHOWN  ·  ${Math.round(spikesNow / 0.12)} SPIKES/S`,
       x + titleWidth + 4,
       38,
     );
